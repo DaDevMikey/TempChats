@@ -1,0 +1,1301 @@
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#111827">
+  <title>TempChats - Secure Temporary Chat Rooms</title>
+  <!-- Load Firebase SDKs before React -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+  <!-- Initialize Firebase -->
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyClXzJmhgEAR4Pf214Q25l54Ut399Z94Zw",
+      authDomain: "tempchat-ac73f.firebaseapp.com",
+      databaseURL: "https://tempchat-ac73f-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "tempchat-ac73f",
+      storageBucket: "tempchat-ac73f.firebasestorage.app",
+      messagingSenderId: "910845766012",
+      appId: "1:910845766012:web:f79046b9bb5c37dfbf5cf9",
+      measurementId: "G-2HNJEVE3BD"
+    };
+    
+    // Initialize Firebase
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.firestore();
+
+    // Add this function after Firebase initialization
+    function setupExpirationCleanup() {
+      // Check for expired rooms every minute
+      setInterval(async () => {
+        try {
+          const now = firebase.firestore.Timestamp.now();
+          
+          // Get expired rooms
+          const expiredRoomsSnapshot = await db.collection('rooms')
+            .where('expires_at', '<=', now)
+            .get();
+
+          if (expiredRoomsSnapshot.empty) return;
+
+          const batch = db.batch();
+          const expiredRoomIds = [];
+
+          // Collect expired room IDs and prepare room deletions
+          expiredRoomsSnapshot.forEach(doc => {
+            expiredRoomIds.push(doc.id);
+            batch.delete(doc.ref);
+          });
+
+          // Get and delete all messages from expired rooms
+          const messagesSnapshot = await db.collection('messages')
+            .where('room_id', 'in', expiredRoomIds)
+            .get();
+
+          messagesSnapshot.forEach(doc => {
+            batch.delete(doc.ref);
+          });
+
+          // Execute all deletions
+          await batch.commit();
+          console.log(`Cleaned up ${expiredRoomsSnapshot.size} expired rooms and their messages`);
+        } catch (error) {
+          console.error('Error cleaning up expired rooms:', error);
+        }
+      }, 60000); // Run every minute
+    }
+
+    // Call the setup function after Firebase initialization
+    setupExpirationCleanup();
+  </script>
+  <!-- Load React after Firebase -->
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="styles.css">
+  <!-- Add Material Icons -->
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+</head>
+<body>
+  <div id="root"></div>
+
+  <!-- Add Toast Container -->
+  <div id="toast-container" class="fixed bottom-4 right-4 z-50"></div>
+
+  <script type="text/babel">
+    // Login Component
+    function Login({ onLogin }) {
+      const [username, setUsername] = React.useState('');
+      const [isChecking, setIsChecking] = React.useState(false);
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        if (!username.trim() || isChecking) return;
+
+        const cleanUsername = username.trim();
+        if (cleanUsername.length < 3) {
+          window.showToast('Username must be at least 3 characters', 'error');
+          return;
+        }
+
+        setIsChecking(true);
+        try {
+          // First check if user exists in localStorage
+          const localUser = localStorage.getItem('userDetails');
+          if (localUser) {
+            const userData = JSON.parse(localUser);
+            if (userData.username === cleanUsername) {
+              onLogin(cleanUsername, userData.userId);
+              return;
+            }
+          }
+
+          // Check database only for new usernames
+          const snapshot = await db.collection('users')
+            .where('username', '==', cleanUsername)
+            .get();
+
+          if (!snapshot.empty) {
+            window.showToast('Username already taken', 'error');
+            return;
+          }
+
+          // Create new user document
+          const userRef = await db.collection('users').add({
+            username: cleanUsername,
+            created_at: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          // Store user details locally
+          const userDetails = {
+            username: cleanUsername,
+            userId: userRef.id,
+            loginTime: new Date().toISOString()
+          };
+          localStorage.setItem('userDetails', JSON.stringify(userDetails));
+
+          onLogin(cleanUsername, userRef.id);
+          window.showToast('Welcome to TempChats!', 'success');
+        } catch (error) {
+          console.error('Error during login:', error);
+          window.showToast('Error during login. Please try again.', 'error');
+        } finally {
+          setIsChecking(false);
+        }
+      };
+
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-900">
+          <div className="max-w-md w-full space-y-8 p-8 dark-card rounded-lg shadow">
+            <h2 className="text-3xl font-bold text-center text-gray-100">Welcome to TempChats</h2>
+            <form onSubmit={handleSubmit} className="mt-8 space-y-6">
+              <div>
+                <label htmlFor="username" className="block text-sm font-medium text-gray-300">
+                  Choose a username
+                </label>
+                <input
+                  id="username"
+                  type="text"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className="mt-1 dark-input block w-full rounded-md"
+                  placeholder="Enter username"
+                  disabled={isChecking}
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isChecking}
+                className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
+                  isChecking ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+              >
+                {isChecking ? (
+                  <span className="flex items-center">
+                    <span className="material-icons animate-spin mr-2">refresh</span>
+                    Checking...
+                  </span>
+                ) : (
+                  'Start Chatting'
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // Main App Component
+    function App() {
+      const [view, setView] = React.useState('login');
+      const [username, setUsername] = React.useState('');
+      const [userId, setUserId] = React.useState(null);
+      const [currentRoom, setCurrentRoom] = React.useState(null);
+      const [lastRoom, setLastRoom] = React.useState(null);
+
+      // Add login persistence check
+      React.useEffect(() => {
+        const userDetails = localStorage.getItem('userDetails');
+        if (userDetails) {
+          const { username, userId } = JSON.parse(userDetails);
+          setUsername(username);
+          setUserId(userId);
+          setView('landing');
+        }
+      }, []);
+
+      const handleLogin = (username, userId) => {
+        setUsername(username);
+        setUserId(userId);
+        setView('landing');
+      };
+
+      const handleLogout = async () => {
+        try {
+          if (userId) {
+            // Delete user's rooms
+            const userRooms = await db.collection('rooms')
+              .where('creator', '==', username)
+              .get();
+            
+            const batch = db.batch();
+            userRooms.forEach(doc => {
+              batch.delete(doc.ref);
+            });
+
+            // Delete user's messages
+            const userMessages = await db.collection('messages')
+              .where('sender', '==', username)
+              .get();
+            
+            userMessages.forEach(doc => {
+              batch.delete(doc.ref);
+            });
+
+            // Delete user document
+            batch.delete(db.collection('users').doc(userId));
+            
+            await batch.commit();
+          }
+
+          // Clear local storage
+          localStorage.removeItem('userDetails');
+          setUsername('');
+          setUserId(null);
+          setCurrentRoom(null);
+          setLastRoom(null);
+          setView('login');
+          
+          window.showToast('Logged out successfully', 'success');
+        } catch (error) {
+          console.error('Error during logout:', error);
+          window.showToast('Error during logout', 'error');
+        }
+      };
+
+      const handleCreateRoom = async (roomData) => {
+        try {
+          // Check for existing rooms with same name
+          const existingRooms = await db.collection('rooms')
+            .where('name', '==', roomData.name)
+            .get();
+
+          let finalName = roomData.name;
+          if (!existingRooms.empty) {
+            let counter = 1;
+            while (true) {
+              const newName = `${roomData.name} (${counter})`;
+              const checkName = await db.collection('rooms')
+                .where('name', '==', newName)
+                .get();
+              if (checkName.empty) {
+                finalName = newName;
+                break;
+              }
+              counter++;
+            }
+          }
+
+          const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+          
+          const newRoom = {
+            ...roomData,
+            name: finalName,
+            creator: username,
+            room_code: roomCode,
+            created_at: firebase.firestore.FieldValue.serverTimestamp(),
+            expires_at: firebase.firestore.Timestamp.fromDate(
+              new Date(Date.now() + (parseInt(roomData.duration) || 1) * 60 * 60 * 1000)
+            ),
+            active_users: [username]
+          };
+
+          const roomRef = await db.collection('rooms').add(newRoom);
+          setCurrentRoom({ id: roomRef.id, ...newRoom });
+          setView('chat');
+          window.showToast('Room created successfully!', 'success');
+        } catch (error) {
+          console.error('Error creating room:', error);
+          window.showToast('Failed to create room: ' + error.message, 'error');
+        }
+      };
+
+      const handleLeaveRoom = () => {
+        setCurrentRoom(null);
+        setLastRoom(null);
+        setView('landing');
+        window.showToast('Left room successfully', 'success');
+      };
+
+      const handleJoinRoom = async (roomId) => {
+        try {
+          const roomDoc = await db.collection('rooms').doc(roomId).get();
+          
+          if (!roomDoc.exists) {
+            window.showToast('Room not found', 'error');
+            return;
+          }
+
+          const roomData = { id: roomDoc.id, ...roomDoc.data() };
+          
+          // Check if room is private and user is not creator
+          if (roomData.isPrivate && roomData.creator !== username) {
+            // Create and show modal for private room confirmation
+            const confirmJoin = confirm(`
+              Private Room Details:
+              Name: ${roomData.name}
+              Creator: ${roomData.creator}
+              Latest Message: ${roomData.latestMessage || 'No messages yet'}
+              
+              Would you like to join this private room?
+            `);
+
+            if (!confirmJoin) return;
+
+            const codeInput = prompt('Please enter the room code:');
+            if (codeInput !== roomData.room_code) {
+              window.showToast('Invalid room code', 'error');
+              return;
+            }
+          }
+
+          setCurrentRoom(roomData);
+          setView('chat');
+          window.showToast('Joined room successfully!', 'success');
+        } catch (error) {
+          console.error('Error joining room:', error);
+          window.showToast('Failed to join room', 'error');
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-gray-900 text-gray-100">
+          {view === 'login' && (
+            <Login onLogin={handleLogin} />
+          )}
+          {view === 'landing' && (
+            <LandingPage
+              username={username}
+              onCreateRoom={() => setView('create')}
+              onJoinRoom={handleJoinRoom}
+              onLogout={handleLogout}
+              lastRoom={lastRoom}
+              setLastRoom={setLastRoom}
+            />
+          )}
+          {view === 'create' && (
+            <CreateRoom
+              onRoomCreated={(roomData) => {
+                setCurrentRoom(roomData);
+                setView('chat');
+              }}
+              onCancel={() => setView('landing')}
+              username={username}
+            />
+          )}
+          {view === 'chat' && currentRoom && (
+            <ChatRoom
+              room={currentRoom}
+              username={username}
+              onLeave={() => {
+                setCurrentRoom(null);
+                setView('landing');
+              }}
+            />
+          )}
+          <PrivacyBanner />
+        </div>
+      );
+    }
+
+    // Landing Page Component
+    function LandingPage({ onCreateRoom, onJoinRoom, username, lastRoom, onLogout, setLastRoom }) {
+      const [joinCode, setJoinCode] = React.useState('');
+      const [showJoinInput, setShowJoinInput] = React.useState(false);
+      const [publicRooms, setPublicRooms] = React.useState([]);
+      const [isLoading, setIsLoading] = React.useState(true);
+      const [searchQuery, setSearchQuery] = React.useState('');
+      const unsubscribeRef = React.useRef(null);
+
+      // Add search filter function
+      const filteredRooms = publicRooms.filter(room => 
+        room.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        room.creator.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+
+      React.useEffect(() => {
+        loadRooms();
+        return () => {
+          if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+          }
+        };
+      }, []);
+
+      const loadRooms = async () => {
+        setIsLoading(true);
+        try {
+          // Unsubscribe from previous listener if exists
+          if (unsubscribeRef.current) {
+            unsubscribeRef.current();
+          }
+
+          // Set up real-time listener
+          unsubscribeRef.current = db.collection('rooms')
+            .where('isPrivate', '==', false)
+            .where('expires_at', '>', firebase.firestore.Timestamp.now())
+            .onSnapshot(snapshot => {
+              const rooms = new Map(); // Use Map to prevent duplicates
+              
+              snapshot.forEach(doc => {
+                const room = { id: doc.id, ...doc.data() };
+                rooms.set(room.id, room); // Use room ID as key
+              });
+
+              setPublicRooms(Array.from(rooms.values()));
+              setIsLoading(false);
+            });
+
+        } catch (error) {
+          console.error('Error loading rooms:', error);
+          window.showToast('Error loading rooms', 'error');
+          setIsLoading(false);
+        }
+      };
+
+      const handleJoinWithCode = async (e) => {
+        e.preventDefault();
+        if (!joinCode.trim()) return;
+
+        try {
+          const roomSnapshot = await db.collection('rooms')
+            .where('room_code', '==', joinCode.trim().toUpperCase())
+            .get();
+
+          if (roomSnapshot.empty) {
+            window.showToast('Room not found', 'error');
+            return;
+          }
+
+          const roomDoc = roomSnapshot.docs[0];
+          const roomData = roomDoc.data();
+
+          if (roomData.expires_at.toDate() < new Date()) {
+            window.showToast('This room has expired', 'error');
+            return;
+          }
+
+          onJoinRoom(roomDoc.id);
+          setJoinCode('');
+          setShowJoinInput(false);
+        } catch (error) {
+          console.error('Error joining room:', error);
+          window.showToast('Error joining room', 'error');
+        }
+      };
+
+      return (
+        <div className="container mx-auto px-4 py-8">
+          {/* Header */}
+          <div className="flex justify-between items-center mb-8">
+            <h1 className="text-3xl font-bold text-gray-100">TempChats</h1>
+            <div className="flex items-center gap-4">
+              <p className="text-gray-300">Hello, {username}!</p>
+              <button
+                onClick={onLogout}
+                className="px-3 py-1 dark-surface-light rounded hover:bg-gray-700"
+              >
+                Logout
+              </button>
+            </div>
+          </div>
+
+          {/* Return to Room Banner */}
+          {lastRoom && (
+            <div className="bg-blue-600 text-white px-4 py-3 rounded-lg mb-6 flex justify-between items-center">
+              <span>You're still in "{lastRoom.name}". Return or leave permanently.</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => onJoinRoom(lastRoom.id)}
+                  className="px-3 py-1 bg-blue-700 rounded hover:bg-blue-800"
+                >
+                  Return
+                </button>
+                <button
+                  onClick={handleLeaveRoom}
+                  className="px-3 py-1 bg-red-600 rounded hover:bg-red-700"
+                >
+                  Leave Room
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-4 mb-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
+              <div className="dark-card p-6 rounded-lg shadow">
+                <h2 className="text-xl font-semibold mb-4 text-gray-100">Create a Room</h2>
+                <p className="mb-4 text-gray-300">Start a new chat room with custom settings</p>
+                <button
+                  onClick={() => setView('create')}
+                  className="w-full dark-button"
+                >
+                  Create Room
+                </button>
+              </div>
+              <div className="relative">
+                <button
+                  onClick={() => setShowJoinInput(!showJoinInput)}
+                  className="px-4 py-2 dark-surface-light hover:bg-gray-700 rounded-lg flex items-center"
+                >
+                  <span className="material-icons mr-2">input</span>
+                  Join with Code
+                </button>
+                {showJoinInput && (
+                  <form
+                    onSubmit={handleJoinWithCode}
+                    className="absolute top-full mt-2 right-0 bg-gray-800 p-3 rounded-lg shadow-lg animate-fadeIn z-10"
+                  >
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={joinCode}
+                        onChange={(e) => setJoinCode(e.target.value)}
+                        placeholder="Enter room code"
+                        className="dark-input rounded px-3 py-1"
+                      />
+                      <button
+                        type="submit"
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded"
+                      >
+                        Join
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            </div>
+
+            {/* Add search bar */}
+            <div className="mb-6">
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center">
+                  <span className="material-icons text-gray-400">search</span>
+                </span>
+                <input
+                  type="text"
+                  placeholder="Search rooms by name or creator..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 dark-input rounded-lg"
+                />
+              </div>
+            </div>
+
+            {/* Public Rooms Section */}
+            <div className="mt-8">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">Public Rooms</h2>
+                <button
+                  onClick={loadRooms}
+                  className="px-3 py-1 dark-surface-light rounded hover:bg-gray-700 flex items-center"
+                  disabled={isLoading}
+                >
+                  <span className={`material-icons mr-1 ${isLoading ? 'animate-spin' : ''}`}>
+                    refresh
+                  </span>
+                  Refresh
+                </button>
+              </div>
+
+              {isLoading ? (
+                <div className="text-center py-8">
+                  <span className="material-icons animate-spin text-4xl">refresh</span>
+                  <p className="mt-2 text-gray-400">Loading rooms...</p>
+                </div>
+              ) : filteredRooms.length === 0 ? (
+                <div className="text-center py-8 dark-card rounded-lg">
+                  <span className="material-icons text-4xl text-gray-400">search_off</span>
+                  <p className="mt-2 text-gray-400">No public rooms available</p>
+                  <button
+                    onClick={onCreateRoom}
+                    className="mt-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg"
+                  >
+                    Create a Room
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredRooms.map(room => (
+                    <RoomCard
+                      key={room.id}
+                      room={room}
+                      onJoinRoom={onJoinRoom}
+                      username={username}
+                      isCurrentlyIn={lastRoom?.id === room.id}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Add credits at the bottom of the landing page */}
+            <div className="mt-8 text-center text-gray-400 text-xs">
+              <p>Created by <a href="https://github.com/DaDevMikey" className="text-blue-400 hover:underline">@DaDevMikey</a></p>
+              <p>Visit <a href="https://nexas-development.vercel.app/" className="text-blue-400 hover:underline">Nexas Development</a></p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Helper function to calculate time left
+    function formatTimeLeft(expiryDate) {
+      const now = new Date();
+      const diff = expiryDate - now;
+      
+      const minutes = Math.floor(diff / 60000);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+      
+      if (days > 0) {
+        return `${days} day${days > 1 ? 's' : ''} left`;
+      } else if (hours > 0) {
+        return `${hours} hour${hours > 1 ? 's' : ''} left`;
+      } else if (minutes > 0) {
+        return `${minutes} minute${minutes > 1 ? 's' : ''} left`;
+      } else {
+        return 'Expiring soon';
+      }
+    }
+
+    // Toast Component
+    function Toast({ message, type = 'success', onClose }) {
+      const bgColor = {
+        success: 'bg-green-500',
+        error: 'bg-red-500',
+        info: 'bg-gray-500'
+      }[type];
+
+      const icon = {
+        success: 'check_circle',
+        error: 'error',
+        info: 'info'
+      }[type];
+
+      React.useEffect(() => {
+        const timer = setTimeout(onClose, 5000);
+        return () => clearTimeout(timer);
+      }, [onClose]);
+
+      return (
+        <div className={`${bgColor} text-white px-4 py-3 rounded-lg shadow-lg flex items-center mb-2 animate-slide-in`}>
+          <span className="material-icons mr-2">{icon}</span>
+          {message}
+          <button onClick={onClose} className="ml-4">
+            <span className="material-icons">close</span>
+          </button>
+        </div>
+      );
+    }
+
+    // Toast Manager Component
+    function ToastManager() {
+      const [toasts, setToasts] = React.useState([]);
+
+      window.showToast = (message, type = 'success') => {
+        const id = Date.now();
+        setToasts(prev => [...prev, { id, message, type }]);
+      };
+
+      const removeToast = (id) => {
+        setToasts(prev => prev.filter(toast => toast.id !== id));
+      };
+
+      return ReactDOM.createPortal(
+        <div className="fixed bottom-4 right-4 z-50">
+          {toasts.map(toast => (
+            <Toast
+              key={toast.id}
+              message={toast.message}
+              type={toast.type}
+              onClose={() => removeToast(toast.id)}
+            />
+          ))}
+        </div>,
+        document.getElementById('toast-container')
+      );
+    }
+
+    // Create Room Component
+    function CreateRoom({ onRoomCreated, onCancel, username }) {
+      const [formData, setFormData] = React.useState({
+        name: '',
+        duration: '1',
+        isPrivate: false,
+        moderation_level: 'minimal'
+      });
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        try {
+          await onRoomCreated(formData);
+        } catch (error) {
+          console.error('Error creating room:', error);
+          window.showToast('Failed to create room', 'error');
+        }
+      };
+
+      return (
+        <div className="container mx-auto px-4 py-8">
+          <div className="max-w-2xl mx-auto dark-card p-6 rounded-lg shadow">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-semibold text-gray-100">Create a New Room</h2>
+              <button
+                onClick={onCancel}
+                className="text-gray-400 hover:text-gray-300"
+              >
+                <span className="material-icons">close</span>
+              </button>
+            </div>
+            <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Room Name
+                </label>
+                <input
+                  type="text"
+                  value={formData.name}
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
+                  className="dark-input w-full rounded"
+                  required
+                />
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Duration
+                </label>
+                <select
+                  value={formData.duration}
+                  onChange={(e) => setFormData(prev => ({ ...prev, duration: e.target.value }))}
+                  className="dark-input w-full rounded"
+                >
+                  <option value="1">1 hour</option>
+                  <option value="3">3 hours</option>
+                  <option value="6">6 hours</option>
+                  <option value="12">12 hours</option>
+                  <option value="24">24 hours</option>
+                </select>
+              </div>
+
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Content Moderation
+                </label>
+                <select
+                  value={formData.moderation_level}
+                  onChange={(e) => setFormData(prev => ({ ...prev, moderation_level: e.target.value }))}
+                  className="dark-input w-full rounded"
+                >
+                  <option value="minimal">Minimal (Block Racial Slurs)</option>
+                  <option value="advanced">Advanced (Block All Slurs)</option>
+                </select>
+              </div>
+
+              <div className="mb-6">
+                <label className="flex items-center">
+                  <input
+                    type="checkbox"
+                    checked={formData.isPrivate}
+                    onChange={(e) => setFormData(prev => ({ ...prev, isPrivate: e.target.checked }))}
+                    className="dark-input rounded mr-2"
+                  />
+                  <span className="text-sm text-gray-300">Make room private</span>
+                </label>
+              </div>
+
+              <div className="flex gap-4 mt-6">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="flex-1 px-4 py-2 dark-surface-light rounded hover:bg-gray-700"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded"
+                >
+                  Create Room
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      );
+    }
+
+    // Chat Room Component
+    function ChatRoom({ room, username, onLeave }) {
+      const [messages, setMessages] = React.useState([]);
+      const [inputValue, setInputValue] = React.useState('');
+      const [replyTo, setReplyTo] = React.useState(null);
+      const messageListRef = React.useRef(null);
+      const [typingUsers, setTypingUsers] = React.useState(new Set());
+      const typingTimeoutRef = React.useRef(null);
+
+      // Add reply handling
+      const handleReply = (message) => {
+        setReplyTo(message);
+        // Focus input field
+        document.querySelector('input[type="text"]').focus();
+      };
+
+      const handleTyping = (e) => {
+        const text = e.target.value;
+        setInputValue(text);
+
+        // Check if typing should be triggered
+        if (text.length > 10 || text.split(' ').length > 2) {
+          // Update typing status in Firestore
+          updateTypingStatus(true);
+
+          // Clear existing timeout
+          if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+          }
+
+          // Set new timeout
+          typingTimeoutRef.current = setTimeout(() => {
+            updateTypingStatus(false);
+          }, 3000);
+        }
+      };
+
+      const updateTypingStatus = async (isTyping) => {
+        try {
+          const typingRef = db.collection('typing').doc(room.id);
+          if (isTyping) {
+            await typingRef.set({
+              [username]: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+          } else {
+            await typingRef.update({
+              [username]: firebase.firestore.FieldValue.delete()
+            });
+          }
+        } catch (error) {
+          console.error('Error updating typing status:', error);
+        }
+      };
+
+      // Add effect to listen for typing users
+      React.useEffect(() => {
+        if (!room?.id) return;
+
+        const unsubscribe = db.collection('typing')
+          .doc(room.id)
+          .onSnapshot(doc => {
+            if (doc.exists) {
+              const data = doc.data();
+              const now = new Date();
+              const activeTypers = new Set(
+                Object.entries(data)
+                  .filter(([user, timestamp]) => {
+                    const typingTime = timestamp?.toDate();
+                    return typingTime && 
+                           (now - typingTime) < 3000 && 
+                           user !== username;
+                  })
+                  .map(([user]) => user)
+              );
+              setTypingUsers(activeTypers);
+            } else {
+              setTypingUsers(new Set());
+            }
+          });
+
+        return () => unsubscribe();
+      }, [room?.id, username]);
+
+      const handleSendMessage = async (e) => {
+        e.preventDefault();
+        if (!inputValue.trim()) return;
+
+        const moderatedContent = moderateContent(inputValue.trim(), room.moderation_level);
+        const replyData = replyTo ? {
+          sender: replyTo.sender,
+          content: replyTo.content
+        } : null;
+        
+        try {
+          // Send message
+          await db.collection('messages').add({
+            room_id: room.id,
+            sender: username,
+            content: moderatedContent,
+            reply_to: replyData,
+            created_at: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          // Update room's latest message
+          await db.collection('rooms').doc(room.id).update({
+            latestMessage: `${username}: ${moderatedContent}`,
+            lastActivity: firebase.firestore.FieldValue.serverTimestamp()
+          });
+
+          // Clear input and reply after successful send
+          setInputValue('');
+          setReplyTo(null);
+          updateTypingStatus(false);
+        } catch (error) {
+          console.error('Error sending message:', error);
+          window.showToast('Error sending message', 'error');
+        }
+      };
+
+      const moderateContent = (text, level) => {
+        const slurs = {
+          minimal: [
+            { pattern: /n[i1]gg[e3]r/gi, replacement: '***' },
+            { pattern: /k[i1]k[e3]/gi, replacement: '***' }
+          ],
+          advanced: [
+            { pattern: /f[u\*]ck/gi, replacement: '***' },
+            { pattern: /sh[i1]t/gi, replacement: '***' },
+            { pattern: /b[i1]tch/gi, replacement: '***' },
+            { pattern: /[a@]ss/gi, replacement: '***' },
+            { pattern: /d[i1]ck/gi, replacement: '***' }
+          ]
+        };
+
+        let moderatedText = text;
+        const patterns = [...(slurs.minimal || []), ...(level === 'advanced' ? slurs.advanced : [])];
+
+        patterns.forEach(({ pattern, replacement }) => {
+          moderatedText = moderatedText.replace(pattern, replacement);
+        });
+
+        return moderatedText;
+      };
+
+      // Load and listen to messages
+      React.useEffect(() => {
+        if (!room?.id) return;
+
+        const messageUnsubscribe = db.collection('messages')
+          .where('room_id', '==', room.id)
+          .orderBy('created_at', 'asc')
+          .onSnapshot(snapshot => {
+            const newMessages = [];
+            snapshot.forEach(doc => {
+              newMessages.push({ id: doc.id, ...doc.data() });
+            });
+            setMessages(newMessages);
+          });
+
+        return () => {
+          messageUnsubscribe();
+          if (typingTimeoutRef.current) {
+            clearTimeout(typingTimeoutRef.current);
+          }
+          updateTypingStatus(false);
+        };
+      }, [room?.id]);
+
+      if (!room) {
+        return <div>Loading chat room...</div>;
+      }
+
+      return (
+        <div className="h-screen flex flex-col bg-gray-900">
+          <div className="flex justify-between items-center p-4 border-b border-gray-700">
+            <div>
+              <h2 className="text-xl font-semibold text-gray-100">
+                {room.name}
+                <button
+                  onClick={() => {
+                    navigator.clipboard.writeText(room.room_code);
+                    window.showToast('Room code copied!', 'success');
+                  }}
+                  className="ml-2 px-2 py-1 text-sm bg-indigo-600 rounded hover:bg-indigo-700"
+                  title="Copy room code"
+                >
+                  <span className="material-icons text-sm">content_copy</span>
+                  {room.room_code}
+                </button>
+              </h2>
+              <p className="text-sm text-gray-400">
+                Type: {room.type} | Duration: {room.duration}
+              </p>
+            </div>
+            <div>
+              <button
+                onClick={onLeave}
+                className="px-3 py-1 dark-surface-light rounded hover:bg-gray-700"
+              >
+                <span className="material-icons mr-1">logout</span>
+                Leave Room
+              </button>
+            </div>
+          </div>
+
+          {/* Messages Area - Update message display to show replies */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4" ref={messageListRef}>
+            {messages.map(message => (
+              <div key={message.id} className={`flex ${message.sender === username ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[70%] rounded-lg p-3 ${
+                  message.sender === username ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-100'
+                }`}>
+                  {message.reply_to && (
+                    <div className="text-sm bg-gray-800 bg-opacity-50 p-2 rounded mb-2">
+                      <p className="font-semibold text-xs">{message.reply_to.sender}</p>
+                      <p className="text-gray-300 text-sm">{message.reply_to.content}</p>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-start">
+                    <p className="text-sm font-semibold mb-1">{message.sender}</p>
+                    <button 
+                      onClick={() => handleReply(message)}
+                      className="text-xs opacity-50 hover:opacity-100"
+                    >
+                      <span className="material-icons text-sm">reply</span>
+                    </button>
+                  </div>
+                  <p>{message.content}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Message Input with Reply Preview */}
+          <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-700">
+            {replyTo && (
+              <div className="mb-2 p-2 bg-gray-800 rounded flex justify-between items-center">
+                <div>
+                  <p className="text-sm font-semibold">Replying to {replyTo.sender}</p>
+                  <p className="text-sm text-gray-400">{replyTo.content}</p>
+                </div>
+                <button 
+                  onClick={() => setReplyTo(null)}
+                  className="text-gray-400 hover:text-gray-300"
+                >
+                  <span className="material-icons">close</span>
+                </button>
+              </div>
+            )}
+            <div className="flex flex-col gap-2">
+              {typingUsers.size > 0 && (
+                <div className="text-sm text-gray-400 italic">
+                  {Array.from(typingUsers).join(', ')} {typingUsers.size === 1 ? 'is' : 'are'} typing...
+                </div>
+              )}
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={inputValue}
+                  onChange={handleTyping}
+                  placeholder="Type a message..."
+                  className="flex-1 dark-input rounded-lg"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </form>
+        </div>
+      );
+    }
+
+    // Whiteboard Component
+    function Whiteboard({ room }) {
+      const canvasRef = React.useRef(null);
+      const [isDrawing, setIsDrawing] = React.useState(false);
+      const [color, setColor] = React.useState('#000000');
+      const [brushSize, setBrushSize] = React.useState(2);
+      const roomConnection = React.useRef(null);
+
+      React.useEffect(() => {
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        
+        roomConnection.current = new WebsimSocket();
+        
+        roomConnection.current.onmessage = (event) => {
+          const data = event.data;
+          if (data.type === 'draw') {
+            drawLine(context, data.x0, data.y0, data.x1, data.y1, data.color, data.brushSize);
+          }
+        };
+
+        return () => {
+          roomConnection.current = null;
+        };
+      }, []);
+
+      const drawLine = (context, x0, y0, x1, y1, color, size) => {
+        context.beginPath();
+        context.moveTo(x0, y0);
+        context.lineTo(x1, y1);
+        context.strokeStyle = color;
+        context.lineWidth = size;
+        context.stroke();
+        context.closePath();
+      };
+
+      const startDrawing = (e) => {
+        const canvas = canvasRef.current;
+        const rect = canvas.getBoundingClientRect();
+        setIsDrawing(true);
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        canvas.getContext('2d').beginPath();
+        canvas.getContext('2d').moveTo(x, y);
+      };
+
+      const draw = (e) => {
+        if (!isDrawing) return;
+        
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        drawLine(
+          context,
+          context.currentX || x,
+          context.currentY || y,
+          x,
+          y,
+          color,
+          brushSize
+        );
+        
+        roomConnection.current.send({
+          type: 'draw',
+          x0: context.currentX || x,
+          y0: context.currentY || y,
+          x1: x,
+          y1: y,
+          color,
+          brushSize
+        });
+        
+        context.currentX = x;
+        context.currentY = y;
+      };
+
+      const stopDrawing = () => {
+        setIsDrawing(false);
+        const canvas = canvasRef.current;
+        canvas.getContext('2d').currentX = null;
+        canvas.getContext('2d').currentY = null;
+      };
+
+      return (
+        <div className="h-full flex flex-col p-4">
+          <div className="flex justify-between items-center mb-4">
+            <div className="flex items-center space-x-4">
+              <input
+                type="color"
+                value={color}
+                onChange={(e) => setColor(e.target.value)}
+                className="w-8 h-8"
+              />
+              <select
+                value={brushSize}
+                onChange={(e) => setBrushSize(Number(e.target.value))}
+                className="dark-input border rounded px-2 py-1"
+              >
+                <option value="2">Small</option>
+                <option value="5">Medium</option>
+                <option value="10">Large</option>
+              </select>
+            </div>
+            <button
+              onClick={() => {
+                const canvas = canvasRef.current;
+                const context = canvas.getContext('2d');
+                context.clearRect(0, 0, canvas.width, canvas.height);
+              }}
+              className="px-3 py-1 dark-surface-light rounded hover:bg-gray-700"
+            >
+              Clear
+            </button>
+          </div>
+          
+          <canvas
+            ref={canvasRef}
+            width={800}
+            height={600}
+            onMouseDown={startDrawing}
+            onMouseMove={draw}
+            onMouseUp={stopDrawing}
+            onMouseOut={stopDrawing}
+            className="border rounded bg-white flex-1 w-full"
+          />
+        </div>
+      );
+    }
+
+    // Room Card Component
+    function RoomCard({ room, onJoinRoom, username, isCurrentlyIn }) {
+      const timeLeft = formatTimeLeft(room.expires_at.toDate());
+      
+      return (
+        <div className="dark-card p-4 rounded-lg shadow-lg h-full flex flex-col">
+          <div className="mb-2">
+            <h3 className="text-lg font-bold truncate">{room.name}</h3>
+          </div>
+          <div className="space-y-2 mb-4 flex-1">
+            <p className="text-sm text-gray-400 flex items-center">
+              <span className="material-icons text-sm mr-1">person</span>
+              {room.creator}
+            </p>
+            <p className="text-sm text-gray-400 flex items-center">
+              <span className="material-icons text-sm mr-1">schedule</span>
+              {timeLeft}
+            </p>
+            {room.latestMessage && (
+              <p className="text-sm text-gray-400 truncate">
+                <span className="material-icons text-sm mr-1">chat</span>
+                {room.latestMessage}
+              </p>
+            )}
+          </div>
+          <button
+            onClick={() => onJoinRoom(room.id)}
+            className="w-full dark-button flex items-center justify-center transition-colors hover:bg-blue-600"
+          >
+            <span className="material-icons mr-2">
+              {isCurrentlyIn ? 'arrow_forward' : 'login'}
+            </span>
+            {isCurrentlyIn ? 'Go Back' : 'Join Room'}
+          </button>
+        </div>
+      );
+    }
+
+    // Privacy Banner Component
+    function PrivacyBanner() {
+      const [isVisible, setIsVisible] = React.useState(true);
+
+      if (!isVisible) return null;
+
+      return (
+        <div className="fixed bottom-4 right-4 max-w-sm bg-gray-800 p-4 rounded-lg shadow-lg animate-fadeIn">
+          <div className="flex justify-between items-start">
+            <span className="material-icons text-blue-400 mr-2">security</span>
+            <div className="flex-1">
+              <h4 className="text-sm font-semibold text-gray-200 mb-2">Privacy Notice</h4>
+              <p className="text-xs text-gray-400">
+                We value your privacy. All messages are automatically deleted with their rooms.
+                Account deletion requests are honored. Illegal activities will be reported.
+              </p>
+            </div>
+            <button
+              onClick={() => setIsVisible(false)}
+              className="text-gray-400 hover:text-gray-300"
+            >
+              <span className="material-icons text-sm">close</span>
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    // Render the app
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
