@@ -8,7 +8,7 @@ This repository contains the source code for TempChats, a web application that a
 
 ## Features
 
-* **Instant Chatrooms:** Create a new chatroom with a single click.  A unique URL is generated that you can share with others.
+* **Instant Chatrooms:** Create a new chatroom with a single click.  A unique Code is generated that you can share with others.
 * **No Registration:**  No accounts or sign-ups are needed. Start chatting immediately.
 * **Temporary:** Chatrooms are ephemeral.  They disappear after a period of inactivity (currently approximately 24 hours).
 * **Simple Interface:** Clean and intuitive design for a seamless user experience.
@@ -56,7 +56,7 @@ This repository contains the source code for TempChats, a web application that a
 
 * **Ephemeral Nature:**  The temporary nature of the chatrooms helps to protect privacy, as conversations are not permanently stored.
 * **No End-to-End Encryption:**  Currently, messages are not end-to-end encrypted.  Avoid sharing highly sensitive information.
-* **Security Best Practices:** (Mention any security best practices followed during development. E.g., input sanitization, protection against XSS attacks, etc.)  Using Firebase's built-in security rules for Firestore is highly recommended.  These rules allow you to control who can read and write data to your database.
+* **Security Best Practices:** Using Firebase's built-in security rules for Firestore is highly recommended.  These rules allow you to control who can read and write data to your database.
 
 ## Contributing
 
