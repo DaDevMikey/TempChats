@@ -5,6 +5,7 @@ import TopAppBar from '../components/TopAppBar';
 export default function CreateRoomView({ user, onNavigate, onLogout, showSnackbar, onOpenSettings }) {
   const [roomName, setRoomName] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [theme, setTheme] = useState('indigo'); // indigo, emerald, violet, amber, rose
   const [duration, setDuration] = useState(3); // default 3h
   const [customHours, setCustomHours] = useState(48);
   const [isCustomDuration, setIsCustomDuration] = useState(false);
@@ -13,6 +14,13 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
   const [loading, setLoading] = useState(false);
 
   const durationOptions = [1, 3, 6, 12, 24];
+  const themeOptions = [
+    { id: 'indigo', name: 'Indigo', color: '#818cf8' },
+    { id: 'emerald', name: 'Emerald', color: '#34d399' },
+    { id: 'violet', name: 'Violet', color: '#c084fc' },
+    { id: 'amber', name: 'Amber', color: '#fbbf24' },
+    { id: 'rose', name: 'Rose', color: '#fb7185' }
+  ];
 
   const handleCreate = async (e) => {
     e.preventDefault();
@@ -35,6 +43,7 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
         name: cleanName,
         creator: user.username,
         authUid: user.authUid,
+        theme: theme,
         isPrivate: isPrivate,
         readReceipts: readReceipts,
         moderationLevel: isPrivate ? moderation : (moderation === 'none' ? 'minimal' : moderation),
@@ -77,6 +86,29 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
                 autoFocus
               />
               <label className="md-text-field__label">Room Name</label>
+            </div>
+          </div>
+
+          {/* Room Theme Accent */}
+          <div>
+            <h4 className="title-small" style={{ color: 'var(--md-sys-color-primary)', marginBottom: '12px' }}>Room Theme Accent</h4>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              {themeOptions.map((opt) => (
+                <button
+                  type="button"
+                  key={opt.id}
+                  className="md-btn"
+                  onClick={() => setTheme(opt.id)}
+                  style={{
+                    backgroundColor: theme === opt.id ? opt.color : 'var(--md-sys-color-surface-container-high)',
+                    color: theme === opt.id ? '#000' : 'var(--md-sys-color-on-surface)',
+                    fontWeight: 600
+                  }}
+                >
+                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: opt.color, display: 'inline-block' }}></span>
+                  <span>{opt.name}</span>
+                </button>
+              ))}
             </div>
           </div>
 

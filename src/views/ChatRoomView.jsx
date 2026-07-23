@@ -22,16 +22,26 @@ function moderateContent(text, level = 'minimal') {
   return result;
 }
 
+const themePalettes = {
+  indigo: { primary: '#818cf8', container: '#3730a3' },
+  emerald: { primary: '#34d399', container: '#065f46' },
+  violet: { primary: '#c084fc', container: '#581c87' },
+  amber: { primary: '#fbbf24', container: '#78350f' },
+  rose: { primary: '#fb7185', container: '#881337' }
+};
+
 export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showSnackbar, onOpenSettings, settings }) {
   const [room, setRoom] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputVal, setInputVal] = useState('');
   const [replyTo, setReplyTo] = useState(null);
   const [vanishTimer, setVanishTimer] = useState(null); // null, 10, or 30
+  const [isBurnAfterReading, setIsBurnAfterReading] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
   const [presenceUsers, setPresenceUsers] = useState([]);
   const [readers, setReaders] = useState([]);
   const [timeLeft, setTimeLeft] = useState('');
+  const [chatVelocity, setChatVelocity] = useState('Calm');
 
   // Modals
   const [editingMsg, setEditingMsg] = useState(null);
@@ -44,7 +54,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
 
-  // 1. Listen to Room Document
+  // 1. Listen to Room Document & Apply Theme
   useEffect(() => {
     if (!roomId) return;
 
@@ -55,12 +65,25 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
           onNavigate('home');
           return;
         }
-        setRoom({ id: doc.id, ...doc.data() });
+        const roomData = { id: doc.id, ...doc.data() };
+        setRoom(roomData);
+
+        // Apply theme variables dynamically
+        if (roomData.theme && themePalettes[roomData.theme]) {
+          const pal = themePalettes[roomData.theme];
+          document.documentElement.style.setProperty('--md-sys-color-primary', pal.primary);
+          document.documentElement.style.setProperty('--md-sys-color-primary-container', pal.container);
+        }
       },
       (err) => console.error('Room error:', err)
     );
 
-    return () => unsub();
+    return () => {
+      unsub();
+      // Reset theme
+      document.documentElement.style.setProperty('--md-sys-color-primary', '#818cf8');
+      document.documentElement.style.setProperty('--md-sys-color-primary-container', '#3730a3');
+    };
   }, [roomId, onNavigate, showSnackbar]);
 
   // 2. Presence Pinger
@@ -125,7 +148,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     return () => clearInterval(interval);
   }, [room?.expires_at, onNavigate, showSnackbar]);
 
-  // 5. Listen & Decrypt Messages
+  // 5. Listen & Decrypt Messages & Velocity Calculation
   useEffect(() => {
     if (!roomId) return;
 
@@ -135,6 +158,17 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
       .onSnapshot(
         async (snapshot) => {
           const rawList = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+          // Calculate Chat Velocity (messages in last 2 minutes)
+          const now = Date.now();
+          const recentCount = rawList.filter((m) => {
+            const time = m.created_at?.toDate ? m.created_at.toDate().getTime() : Date.now();
+            return now - time < 120000;
+          }).length;
+
+          if (recentCount >= 8) setChatVelocity('High Velocity');
+          else if (recentCount >= 3) setChatVelocity('Active');
+          else setChatVelocity('Calm');
 
           // Decrypt private room messages
           const processed = await Promise.all(
@@ -161,10 +195,15 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     return () => unsub();
   }, [roomId, room?.isPrivate, room?.code, settings.soundEnabled, user.username, messages.length]);
 
-  // 6. Auto scroll
+  // 6. Auto scroll & Trigger Read Receipt
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+    if (room?.readReceipts && roomId && user?.username) {
+      db.collection('rooms').doc(roomId).collection('read_receipts').doc(user.username).set({
+        timestamp: Date.now()
+      }).catch(() => {});
+    }
+  }, [messages.length, room?.readReceipts, roomId, user?.username]);
 
   // 7. Listen to Typing
   useEffect(() => {
@@ -206,19 +245,14 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     return () => unsub();
   }, [roomId, room?.readReceipts, user.username]);
 
-  const triggerReadReceipt = () => {
-    if (!room?.readReceipts || !roomId) return;
-    db.collection('rooms').doc(roomId).collection('read_receipts').doc(user.username).set({
-      timestamp: Date.now()
-    }).catch(() => {});
-  };
-
   const handleScroll = () => {
     const el = messagesContainerRef.current;
-    if (!el) return;
+    if (!el || !room?.readReceipts || !roomId) return;
     const isAtBottom = el.scrollHeight - el.clientHeight <= el.scrollTop + 30;
     if (isAtBottom) {
-      triggerReadReceipt();
+      db.collection('rooms').doc(roomId).collection('read_receipts').doc(user.username).set({
+        timestamp: Date.now()
+      }).catch(() => {});
     }
   };
 
@@ -243,7 +277,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     }
   };
 
-  // 10. Send Message Handler (Decoupled & Encrypted)
+  // 10. Send Message Handler
   const handleSend = async (e) => {
     e.preventDefault();
     const cleanContent = inputVal.trim();
@@ -268,9 +302,8 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
       created_at: firebase.firestore.FieldValue.serverTimestamp()
     };
 
-    if (vanishTimer) {
-      messageData.vanishTimeSeconds = vanishTimer;
-    }
+    if (vanishTimer) messageData.vanishTimeSeconds = vanishTimer;
+    if (isBurnAfterReading) messageData.isBurnAfterReading = true;
 
     if (replyTo) {
       messageData.reply_to = {
@@ -285,7 +318,6 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
       await db.collection('messages').add(messageData);
       if (settings.soundEnabled) playChime('send');
 
-      // Update room preview without blocking message delivery
       db.collection('rooms').doc(roomId).update({
         latestMessage: room.isPrivate ? '🔒 [Encrypted Message]' : moderated,
         updated_at: firebase.firestore.FieldValue.serverTimestamp()
@@ -301,10 +333,8 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
   const handleReact = async (msgId, emoji) => {
     const msg = messages.find((m) => m.id === msgId);
     if (!msg) return;
-
     const reactions = msg.reactions || {};
     const count = (reactions[emoji] || 0) + 1;
-
     try {
       await db.collection('messages').doc(msgId).update({
         [`reactions.${emoji}`]: count
@@ -320,13 +350,11 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
       setEditingMsg(null);
       return;
     }
-
     const clean = newContent.trim();
     if (clean === editingMsg.content) {
       setEditingMsg(null);
       return;
     }
-
     try {
       const moderated = moderateContent(clean, room.moderationLevel);
       const finalContent = room.isPrivate && room.code
@@ -349,7 +377,6 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
   const handleConfirmDelete = async (msgId, silent = false) => {
     const targetId = msgId || deletingMsgId;
     if (!targetId) return;
-
     try {
       await db.collection('messages').doc(targetId).delete();
     } catch (e) {
@@ -379,6 +406,11 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
         extraActions={
           room && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              {/* Velocity Badge */}
+              <span className="countdown-badge" style={{ backgroundColor: 'var(--md-sys-color-surface-container-highest)', color: 'var(--md-sys-color-on-surface)' }}>
+                {chatVelocity}
+              </span>
+
               {/* Online Users Badge */}
               <button
                 className="md-btn md-btn--tonal"
@@ -487,9 +519,9 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
           </div>
         )}
 
-        {/* Vanish Bar */}
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px' }}>
-          <span className="body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>Vanish Timer:</span>
+        {/* Options Toolbar */}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '8px', flexWrap: 'wrap' }}>
+          <span className="body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>Timer:</span>
           <button
             type="button"
             className={`md-btn ${vanishTimer === null ? 'md-btn--filled' : 'md-btn--tonal'}`}
@@ -504,7 +536,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
             onClick={() => setVanishTimer(10)}
             style={{ height: '26px', padding: '0 10px', fontSize: '0.75rem' }}
           >
-            🔥 10s
+            10s
           </button>
           <button
             type="button"
@@ -512,7 +544,19 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
             onClick={() => setVanishTimer(30)}
             style={{ height: '26px', padding: '0 10px', fontSize: '0.75rem' }}
           >
-            🔥 30s
+            30s
+          </button>
+
+          <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--md-sys-color-outline-variant)', margin: '0 4px' }} />
+
+          <button
+            type="button"
+            className={`md-btn ${isBurnAfterReading ? 'md-btn--filled' : 'md-btn--tonal'}`}
+            onClick={() => setIsBurnAfterReading(!isBurnAfterReading)}
+            style={{ height: '26px', padding: '0 10px', fontSize: '0.75rem' }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: '14px' }}>visibility_off</span>
+            <span>One-Time View</span>
           </button>
         </div>
 
