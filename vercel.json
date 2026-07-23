@@ -1,5 +1,5 @@
 {
-  "buildCommand": "cmd /c npm run build",
+  "buildCommand": "node build.js && vite build",
   "outputDirectory": "dist",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
