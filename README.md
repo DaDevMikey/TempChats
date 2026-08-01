@@ -8,7 +8,8 @@ Secure, temporary chat rooms that auto-destruct. Built with React 18, Vite, and 
 
 - **Instant Rooms** — Create a chat room in seconds with a unique share code
 - **No Registration** — Just pick a username and start chatting anonymously
-- **Floating Message Actions** — Hover over any message to reply, edit, or delete cleanly
+- **Message Actions Everywhere** — Hover on desktop or long-press on mobile to react, reply, copy, edit, or delete
+- **Mobile First** — Responsive Material 3 Expressive layouts with One UI ergonomics, safe-area and on-screen keyboard handling
 - **Prominent Room Cards** — Modern M3 cards with expiration badges and direct Join buttons
 - **Read Receipts** — Optional room feature displaying who has read the latest messages
 - **Auto-Destruct** — Rooms and all messages are permanently deleted when they expire
@@ -22,7 +23,7 @@ Secure, temporary chat rooms that auto-destruct. Built with React 18, Vite, and 
 ## Tech Stack
 
 - **Frontend:** React 18, Vite (Fast HMR & build optimization)
-- **Design System:** Material 3 Expressive (custom CSS implementation)
+- **Design System:** Material 3 Expressive with One UI inspired ergonomics (custom CSS implementation)
 - **Database:** Firebase Firestore (real-time listeners)
 - **Auth:** Firebase Anonymous Authentication
 - **Icons:** Material Symbols Rounded
