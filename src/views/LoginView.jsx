@@ -59,17 +59,20 @@ export default function LoginView({ onLoginSuccess, showSnackbar }) {
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div>
-          <h1 className="login-card__logo" style={{ fontSize: '2.4rem', color: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: '36px' }}>chat_bubble</span>
-            TempChats
-          </h1>
-          <p className="body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)', textAlign: 'center', marginTop: '8px' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div
+            className="action-card__icon"
+            style={{ margin: '0 auto 16px', width: '64px', height: '64px', borderRadius: '20px' }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: '34px' }} aria-hidden="true">chat_bubble</span>
+          </div>
+          <h1 className="display-small" style={{ letterSpacing: '-0.02em' }}>TempChats</h1>
+          <p className="body-medium text-muted" style={{ marginTop: '8px' }}>
             Temporary, self-destructing chat rooms. No email or password needed.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="md-text-field">
             <input
               type="text"
@@ -81,16 +84,32 @@ export default function LoginView({ onLoginSuccess, showSnackbar }) {
               minLength={3}
               maxLength={20}
               autoComplete="off"
+              inputMode="text"
+              enterKeyHint="go"
               disabled={loading}
               autoFocus
             />
-            <label className="md-text-field__label">Choose a Username</label>
+            <label className="md-text-field__label">Choose a username</label>
           </div>
 
-          <button type="submit" className="md-btn md-btn--filled" disabled={loading} style={{ height: '48px' }}>
-            {loading ? 'Entering...' : 'Enter TempChats'}
+          <button type="submit" className="md-btn md-btn--filled" disabled={loading} style={{ minHeight: '54px' }}>
+            {loading ? (
+              <>
+                <span className="material-symbols-rounded" style={{ fontSize: '20px' }} aria-hidden="true">hourglass_top</span>
+                <span>Entering...</span>
+              </>
+            ) : (
+              <>
+                <span>Enter TempChats</span>
+                <span className="material-symbols-rounded" style={{ fontSize: '20px' }} aria-hidden="true">arrow_forward</span>
+              </>
+            )}
           </button>
         </form>
+
+        <p className="body-small text-muted" style={{ textAlign: 'center' }}>
+          3–20 characters — letters, numbers or underscores.
+        </p>
       </div>
     </div>
   );

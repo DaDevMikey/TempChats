@@ -11,25 +11,33 @@ export default function PrivacyBanner({ onOpenPrivacyModal }) {
   };
 
   return (
-    <div className="privacy-banner">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600 }}>
-          <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }}>shield_lock</span>
-          <span>Your Privacy Matters</span>
+    <div className="privacy-banner" role="region" aria-label="Privacy notice">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+        <div className="title-small" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }} aria-hidden="true">shield_lock</span>
+          <span>Your privacy matters</span>
         </div>
-        <button className="md-btn md-btn--icon" onClick={handleDismiss} style={{ width: '32px', height: '32px' }}>
-          <span className="material-symbols-rounded" style={{ fontSize: '18px' }}>close</span>
+        <button className="md-btn md-btn--icon" onClick={handleDismiss} aria-label="Dismiss privacy notice" style={{ width: '36px', height: '36px', minHeight: '36px' }}>
+          <span className="material-symbols-rounded" style={{ fontSize: '20px' }}>close</span>
         </button>
       </div>
-      <p className="body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
+      <p className="body-small text-muted">
         Chats auto-delete. No personal data collected. Automated safety filtering active.{' '}
-        <a
-          href="#"
-          onClick={(e) => { e.preventDefault(); onOpenPrivacyModal(); }}
-          style={{ color: 'var(--md-sys-color-primary)', fontWeight: 600, textDecoration: 'none' }}
+        <button
+          type="button"
+          onClick={onOpenPrivacyModal}
+          style={{
+            background: 'none',
+            border: 'none',
+            padding: 0,
+            color: 'var(--md-sys-color-primary)',
+            fontWeight: 600,
+            cursor: 'pointer',
+            font: 'inherit'
+          }}
         >
-          Read Policy
-        </a>
+          Read policy
+        </button>
       </p>
     </div>
   );

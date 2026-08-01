@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { db, auth } from './firebase';
 import LoginView from './views/LoginView';
 import HomeView from './views/HomeView';
@@ -33,15 +33,20 @@ export default function App() {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
 
+  const snackbarTimerRef = useRef(null);
+
   const showSnackbar = useCallback((message, type = 'info') => {
     setSnackbar({ message, type });
-    setTimeout(() => setSnackbar({ message: '', type: 'info' }), 4000);
+    clearTimeout(snackbarTimerRef.current);
+    snackbarTimerRef.current = setTimeout(() => setSnackbar({ message: '', type: 'info' }), 4000);
   }, []);
 
-  const updateSettings = (newSettings) => {
+  useEffect(() => () => clearTimeout(snackbarTimerRef.current), []);
+
+  const updateSettings = useCallback((newSettings) => {
     setSettings(newSettings);
     localStorage.setItem('tempchats_settings', JSON.stringify(newSettings));
-  };
+  }, []);
 
   // Hash Navigation Handler
   useEffect(() => {
@@ -57,9 +62,11 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  const navigate = (path) => {
+  // Stable identity: child effects depend on this and would otherwise
+  // re-subscribe to Firestore on every App re-render.
+  const navigate = useCallback((path) => {
     window.location.hash = path;
-  };
+  }, []);
 
   // Automatic Expired Messages & Orphaned Clean Routine
   useEffect(() => {
@@ -83,8 +90,13 @@ export default function App() {
       }
     };
 
-    purgeExpiredData();
-    const interval = setInterval(purgeExpiredData, 60000);
+    const purgeIfVisible = () => {
+      if (!document.hidden) purgeExpiredData();
+    };
+
+    purgeIfVisible();
+    // Every client used to run this every 60s, even in background tabs.
+    const interval = setInterval(purgeIfVisible, 300000);
     return () => clearInterval(interval);
   }, []);
 

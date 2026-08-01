@@ -2,16 +2,20 @@ import React from 'react';
 
 export default function TopAppBar({ user, onLogout, onBack, title = 'TempChats', extraActions, onOpenSettings }) {
   return (
-    <header className="top-app-bar">
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+    <header className="top-app-bar top-app-bar--bordered">
+      <div className="top-app-bar__leading">
         {onBack && (
-          <button className="md-btn md-btn--icon" onClick={onBack} title="Back">
+          <button className="md-btn md-btn--icon" onClick={onBack} title="Back" aria-label="Back">
             <span className="material-symbols-rounded">arrow_back</span>
           </button>
         )}
         <div className="top-app-bar__title">
-          {!onBack && <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }}>chat_bubble</span>}
-          <span>{title}</span>
+          {!onBack && (
+            <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }} aria-hidden="true">
+              chat_bubble
+            </span>
+          )}
+          <span className="truncate">{title}</span>
         </div>
       </div>
 
@@ -20,13 +24,15 @@ export default function TopAppBar({ user, onLogout, onBack, title = 'TempChats',
         {user && (
           <>
             {onOpenSettings && (
-              <button className="md-btn md-btn--icon" onClick={onOpenSettings} title="Settings">
+              <button className="md-btn md-btn--icon" onClick={onOpenSettings} title="Settings" aria-label="Settings">
                 <span className="material-symbols-rounded">settings</span>
               </button>
             )}
-            <div className="user-avatar">{user.username.charAt(0).toUpperCase()}</div>
-            <span className="body-medium" style={{ fontWeight: 500 }}>{user.username}</span>
-            <button className="md-btn md-btn--icon" onClick={onLogout} title="Logout & Wipe Account">
+            <div className="user-avatar" title={user.username} aria-hidden="true">
+              {user.username.charAt(0).toUpperCase()}
+            </div>
+            <span className="top-app-bar__username truncate">{user.username}</span>
+            <button className="md-btn md-btn--icon" onClick={onLogout} title="Logout & wipe account" aria-label="Logout and wipe account">
               <span className="material-symbols-rounded">logout</span>
             </button>
           </>
