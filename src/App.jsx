@@ -4,10 +4,15 @@ import LoginView from './views/LoginView';
 import HomeView from './views/HomeView';
 import CreateRoomView from './views/CreateRoomView';
 import ChatRoomView from './views/ChatRoomView';
+import DirectMessagesView from './views/DirectMessagesView';
 import Snackbar from './components/Snackbar';
 import PrivacyModal from './components/PrivacyModal';
 import DialogModal from './components/DialogModal';
 import UserSettingsModal from './components/UserSettingsModal';
+import ReleaseNotesModal from './components/ReleaseNotesModal';
+import { ensureUserProfile } from './utils/profile';
+import { isBetaUser } from './utils/beta';
+import { CURRENT_RELEASE } from './releaseNotes';
 
 export default function App() {
   const [user, setUser] = useState(() => {
@@ -24,6 +29,7 @@ export default function App() {
     const hash = window.location.hash.slice(1);
     if (!hash || hash === 'login') return { view: 'home' };
     if (hash === 'create') return { view: 'create' };
+    if (hash === 'dms') return { view: 'dms' };
     if (hash.startsWith('chat/')) return { view: 'chat', id: hash.split('/')[1] };
     return { view: 'home' };
   });
@@ -32,6 +38,7 @@ export default function App() {
   const [isPrivacyModalOpen, setIsPrivacyModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isLogoutConfirmOpen, setIsLogoutConfirmOpen] = useState(false);
+  const [isReleaseNotesOpen, setIsReleaseNotesOpen] = useState(false);
 
   const snackbarTimerRef = useRef(null);
 
@@ -42,6 +49,38 @@ export default function App() {
   }, []);
 
   useEffect(() => () => clearTimeout(snackbarTimerRef.current), []);
+
+  const closeReleaseNotes = useCallback(() => {
+    setIsReleaseNotesOpen(false);
+    localStorage.setItem('tempchats_release_seen', CURRENT_RELEASE);
+  }, []);
+
+  // Sync rollout tags & direct-message handle for accounts created before
+  // those fields existed, and pick up server-side changes to the beta tag.
+  useEffect(() => {
+    if (!user?.uid) return undefined;
+
+    let cancelled = false;
+    ensureUserProfile(user).then((updated) => {
+      if (cancelled || !updated) return;
+      const changed = updated.dmHandle !== user.dmHandle
+        || JSON.stringify(updated.tags || {}) !== JSON.stringify(user.tags || {});
+      if (!changed) return;
+      localStorage.setItem('tempchats_user', JSON.stringify(updated));
+      setUser(updated);
+    });
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
+  // Surface the release notes once per version
+  useEffect(() => {
+    if (!user?.uid) return;
+    if (localStorage.getItem('tempchats_release_seen') !== CURRENT_RELEASE) {
+      setIsReleaseNotesOpen(true);
+    }
+  }, [user?.uid]);
 
   const updateSettings = useCallback((newSettings) => {
     setSettings(newSettings);
@@ -54,6 +93,7 @@ export default function App() {
       const hash = window.location.hash.slice(1);
       if (!hash || hash === 'login') setRoute({ view: 'home' });
       else if (hash === 'create') setRoute({ view: 'create' });
+      else if (hash === 'dms') setRoute({ view: 'dms' });
       else if (hash.startsWith('chat/')) setRoute({ view: 'chat', id: hash.split('/')[1] });
       else setRoute({ view: 'home' });
     };
@@ -84,6 +124,20 @@ export default function App() {
           snap.docs.forEach((doc) => batch.delete(doc.ref));
           await batch.commit();
           console.log(`Purged ${snap.size} expired messages`);
+        }
+
+        // Direct message threads are disposable — remove the thread documents
+        // once their 24h lifetime is over so they stop showing up anywhere.
+        const expiredRooms = await db.collection('rooms')
+          .where('expires_at', '<', now)
+          .limit(20)
+          .get();
+
+        const expiredDirect = expiredRooms.docs.filter((doc) => doc.data().isDirect);
+        if (expiredDirect.length > 0) {
+          const roomBatch = db.batch();
+          expiredDirect.forEach((doc) => roomBatch.delete(doc.ref));
+          await roomBatch.commit();
         }
       } catch (err) {
         // Quiet catch for index or permission constraints
@@ -233,7 +287,30 @@ export default function App() {
           onOpenPrivacyModal={() => setIsPrivacyModalOpen(true)}
           onOpenSettings={() => setIsSettingsModalOpen(true)}
           showSnackbar={showSnackbar}
+          isBeta={isBetaUser(user)}
         />
+      )}
+
+      {route.view === 'dms' && (
+        isBetaUser(user) ? (
+          <DirectMessagesView
+            user={user}
+            onNavigate={navigate}
+            onLogout={() => setIsLogoutConfirmOpen(true)}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
+            showSnackbar={showSnackbar}
+          />
+        ) : (
+          <HomeView
+            user={user}
+            onNavigate={navigate}
+            onLogout={() => setIsLogoutConfirmOpen(true)}
+            onOpenPrivacyModal={() => setIsPrivacyModalOpen(true)}
+            onOpenSettings={() => setIsSettingsModalOpen(true)}
+            showSnackbar={showSnackbar}
+            isBeta={false}
+          />
+        )
       )}
 
       {route.view === 'create' && (
@@ -267,7 +344,10 @@ export default function App() {
         onUpdateSettings={updateSettings}
         onClose={() => setIsSettingsModalOpen(false)}
         onOpenPrivacyModal={() => setIsPrivacyModalOpen(true)}
+        onOpenReleaseNotes={() => setIsReleaseNotesOpen(true)}
       />
+
+      <ReleaseNotesModal isOpen={isReleaseNotesOpen} onClose={closeReleaseNotes} />
 
       {/* Logout Confirmation Dialog */}
       <DialogModal

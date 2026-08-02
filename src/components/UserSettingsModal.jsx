@@ -21,7 +21,7 @@ const SETTINGS = [
   }
 ];
 
-export default function UserSettingsModal({ isOpen, settings, onUpdateSettings, onClose, onOpenPrivacyModal }) {
+export default function UserSettingsModal({ isOpen, settings, onUpdateSettings, onClose, onOpenPrivacyModal, onOpenReleaseNotes }) {
   if (!isOpen) return null;
 
   return (
@@ -70,6 +70,15 @@ export default function UserSettingsModal({ isOpen, settings, onUpdateSettings, 
           >
             <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }} aria-hidden="true">shield_lock</span>
             <span>Privacy terms & trust policy</span>
+          </button>
+
+          <button
+            type="button"
+            className="action-sheet__item"
+            onClick={() => { onClose(); onOpenReleaseNotes?.(); }}
+          >
+            <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }} aria-hidden="true">news</span>
+            <span>What&rsquo;s new (release notes)</span>
           </button>
         </div>
 

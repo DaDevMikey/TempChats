@@ -88,6 +88,14 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
           return;
         }
         const roomData = { id: doc.id, ...doc.data() };
+
+        // Direct message threads are strictly two-party
+        if (roomData.isDirect && !(roomData.participants || []).includes(user.authUid)) {
+          showSnackbar('This direct chat is private', 'error');
+          onNavigate('home');
+          return;
+        }
+
         setRoom(roomData);
 
         // Apply theme variables dynamically
@@ -105,7 +113,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
       document.documentElement.style.setProperty('--md-sys-color-primary', DEFAULT_PRIMARY);
       document.documentElement.style.setProperty('--md-sys-color-primary-container', DEFAULT_PRIMARY_CONTAINER);
     };
-  }, [roomId, onNavigate, showSnackbar]);
+  }, [roomId, onNavigate, showSnackbar, user.authUid]);
 
   // 2. Presence Pinger
   useEffect(() => {
@@ -486,6 +494,13 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     showSnackbar(`Copied room code "${room.code}" to clipboard!`);
   };
 
+  const roomTitle = useMemo(() => {
+    if (!room) return 'Loading...';
+    if (!room.isDirect) return room.name;
+    const otherUid = (room.participants || []).find((uid) => uid !== user.authUid);
+    return room.participantHandles?.[otherUid] || room.name;
+  }, [room, user.authUid]);
+
   const renderedMessages = useMemo(() => messages.map((msg, idx) => {
     const prevMsg = messages[idx - 1];
     return (
@@ -508,9 +523,9 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
       <TopAppBar
         user={user}
         onLogout={onLogout}
-        onBack={() => onNavigate('home')}
+        onBack={() => onNavigate(room?.isDirect ? 'dms' : 'home')}
         onOpenSettings={onOpenSettings}
-        title={room ? room.name : 'Loading...'}
+        title={room ? roomTitle : 'Loading...'}
       />
 
       {/* Room status strip — scrolls horizontally instead of overflowing the app bar on phones */}
@@ -537,7 +552,20 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
 
           <span className="md-chip">{chatVelocity}</span>
 
-          {room.isPrivate && (
+          {room.isDirect && (
+            <>
+              <span className="md-chip">
+                <span className="material-symbols-rounded" aria-hidden="true">forum</span>
+                <span>Direct message</span>
+              </span>
+              <span className="md-chip">
+                <span className="material-symbols-rounded" aria-hidden="true">lock</span>
+                <span>Encrypted</span>
+              </span>
+            </>
+          )}
+
+          {room.isPrivate && !room.isDirect && (
             <>
               <button type="button" className="md-chip" onClick={copyRoomCode} title="Copy room code">
                 <span className="material-symbols-rounded" aria-hidden="true">content_copy</span>

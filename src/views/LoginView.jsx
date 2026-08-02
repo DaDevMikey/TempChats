@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { db, auth } from '../firebase';
+import { createUserProfileFields, ensureUserProfile } from '../utils/profile';
 
 export default function LoginView({ onLoginSuccess, showSnackbar }) {
   const [username, setUsername] = useState('');
@@ -25,25 +26,42 @@ export default function LoginView({ onLoginSuccess, showSnackbar }) {
       // 2. Check if username is already claimed by someone else
       const existing = await db.collection('users').where('username', '==', cleaned).get();
       if (!existing.empty) {
-        const docData = existing.docs[0].data();
+        const doc = existing.docs[0];
+        const docData = doc.data();
         if (docData.authUid !== authUser.uid) {
           showSnackbar('Username is already taken by another user', 'error');
           setLoading(false);
           return;
         }
+
+        // Same account signing back in — reuse the existing profile
+        const restored = await ensureUserProfile({
+          username: cleaned,
+          uid: doc.id,
+          authUid: authUser.uid
+        });
+
+        localStorage.setItem('tempchats_user', JSON.stringify(restored));
+        onLoginSuccess(restored);
+        return;
       }
 
       // 3. Register user document
+      const profileFields = await createUserProfileFields();
       const userRef = await db.collection('users').add({
         username: cleaned,
         authUid: authUser.uid,
+        dmHandle: profileFields.dmHandle,
+        tags: profileFields.tags,
         created_at: new Date()
       });
 
       const userData = {
         username: cleaned,
         uid: userRef.id,
-        authUid: authUser.uid
+        authUid: authUser.uid,
+        dmHandle: profileFields.dmHandle,
+        tags: profileFields.tags
       };
 
       localStorage.setItem('tempchats_user', JSON.stringify(userData));

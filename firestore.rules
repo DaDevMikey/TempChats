@@ -8,6 +8,10 @@ service cloud.firestore {
       allow create: if request.auth != null
         && request.resource.data.authUid == request.auth.uid
         && request.resource.data.username is string;
+      // Users may only update their own profile (rollout tags, DM handle)
+      allow update: if request.auth != null
+        && resource.data.authUid == request.auth.uid
+        && request.resource.data.authUid == request.auth.uid;
       allow delete: if request.auth != null && resource.data.authUid == request.auth.uid;
     }
     

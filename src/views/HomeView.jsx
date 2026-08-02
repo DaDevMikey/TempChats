@@ -5,7 +5,7 @@ import RoomCard from '../components/RoomCard';
 import PrivacyBanner from '../components/PrivacyBanner';
 import DialogModal from '../components/DialogModal';
 
-export default function HomeView({ user, onNavigate, onLogout, onOpenPrivacyModal, onOpenSettings, showSnackbar }) {
+export default function HomeView({ user, onNavigate, onLogout, onOpenPrivacyModal, onOpenSettings, showSnackbar, isBeta = false }) {
   const [publicRooms, setPublicRooms] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isJoinCodeOpen, setIsJoinCodeOpen] = useState(false);
@@ -38,10 +38,13 @@ export default function HomeView({ user, onNavigate, onLogout, onOpenPrivacyModa
 
     try {
       const snap = await db.collection('rooms').where('code', '==', cleanCode).get();
-      if (snap.empty) {
+      // Direct message threads also carry a code, but they are only reachable
+      // by their two participants.
+      const match = snap.docs.find((doc) => !doc.data().isDirect);
+      if (!match) {
         showSnackbar('Invalid or expired room code', 'error');
       } else {
-        onNavigate(`chat/${snap.docs[0].id}`);
+        onNavigate(`chat/${match.id}`);
       }
     } catch (e) {
       console.error('Join code error:', e);
@@ -100,6 +103,26 @@ export default function HomeView({ user, onNavigate, onLogout, onOpenPrivacyModa
             </div>
           </button>
         </div>
+
+        {isBeta && (
+          <button type="button" className="action-card" onClick={() => onNavigate('dms')} style={{ marginBottom: '20px' }}>
+            <div
+              className="action-card__icon"
+              style={{ backgroundColor: 'var(--md-sys-color-tertiary-container, var(--md-sys-color-secondary-container))', color: 'var(--md-sys-color-on-secondary-container)' }}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">forum</span>
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <h3 className="title-medium" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span>Direct messages</span>
+                <span className="beta-badge">Beta</span>
+              </h3>
+              <p className="body-medium text-muted" style={{ marginTop: '2px' }}>
+                Chat one to one with a handle — threads clear after 24 hours
+              </p>
+            </div>
+          </button>
+        )}
 
         {/* Search */}
         <div className="search-bar">

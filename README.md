@@ -8,7 +8,9 @@ Secure, temporary chat rooms that auto-destruct. Built with React 18, Vite, and 
 
 - **Instant Rooms** — Create a chat room in seconds with a unique share code
 - **No Registration** — Just pick a username and start chatting anonymously
-- **Message Actions Everywhere** — Hover on desktop or long-press on mobile to react, reply, copy, edit, or delete
+- **Message Actions Everywhere** — Hover or right-click on desktop, long-press on mobile, to react, reply, copy, edit, or delete
+- **Direct Messages (Beta)** — Every account gets a random handle for one-to-one, end-to-end encrypted chats that clear after 24 hours. Gradually rolling out to beta testers and randomly selected users via the `tags.beta` flag on the Firestore user document
+- **Release Notes** — In-app "What's new" dialog, shown once per version and reopenable from Settings
 - **Mobile First** — Responsive Material 3 Expressive layouts with One UI ergonomics, safe-area and on-screen keyboard handling
 - **Prominent Room Cards** — Modern M3 cards with expiration badges and direct Join buttons
 - **Read Receipts** — Optional room feature displaying who has read the latest messages
