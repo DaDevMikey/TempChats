@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { db, auth } from '../firebase';
+import { allocateDmHandle, ensureUserProfile, getUsernameOwner, reserveUsername } from '../utils/profile';
+import { rollSignupBetaFlag } from '../utils/beta';
 
 export default function LoginView({ onLoginSuccess, showSnackbar }) {
   const [username, setUsername] = useState('');
@@ -22,28 +24,60 @@ export default function LoginView({ onLoginSuccess, showSnackbar }) {
       const cred = await auth.signInAnonymously();
       const authUser = cred.user;
 
-      // 2. Check if username is already claimed by someone else
-      const existing = await db.collection('users').where('username', '==', cleaned).get();
-      if (!existing.empty) {
-        const docData = existing.docs[0].data();
-        if (docData.authUid !== authUser.uid) {
+      // 2. Claim the username. The reservation document is the single source
+      // of truth, so two people can never end up with the same name.
+      const owner = await getUsernameOwner(cleaned);
+      if (owner && owner.authUid !== authUser.uid) {
+        showSnackbar('Username is already taken by another user', 'error');
+        setLoading(false);
+        return;
+      }
+
+      if (owner && owner.userId) {
+        // Same account signing back in — reuse the existing profile
+        const restored = await ensureUserProfile({
+          username: owner.username || cleaned,
+          uid: owner.userId,
+          authUid: authUser.uid
+        });
+
+        if (restored.usernameConflict) {
           showSnackbar('Username is already taken by another user', 'error');
           setLoading(false);
           return;
         }
+
+        localStorage.setItem('tempchats_user', JSON.stringify(restored));
+        onLoginSuccess(restored);
+        return;
       }
 
-      // 3. Register user document
+      // 3. Register the user document, then claim the name and a handle
+      const tags = { beta: rollSignupBetaFlag() };
       const userRef = await db.collection('users').add({
         username: cleaned,
         authUid: authUser.uid,
+        tags,
         created_at: new Date()
       });
+
+      const claimed = await reserveUsername(cleaned, authUser.uid, userRef.id);
+      if (!claimed) {
+        await db.collection('users').doc(userRef.id).delete().catch(() => {});
+        showSnackbar('Username is already taken by another user', 'error');
+        setLoading(false);
+        return;
+      }
+
+      const dmHandle = await allocateDmHandle(authUser.uid, cleaned);
+      if (dmHandle) await userRef.update({ dmHandle });
 
       const userData = {
         username: cleaned,
         uid: userRef.id,
-        authUid: authUser.uid
+        authUid: authUser.uid,
+        dmHandle,
+        tags
       };
 
       localStorage.setItem('tempchats_user', JSON.stringify(userData));
@@ -59,17 +93,20 @@ export default function LoginView({ onLoginSuccess, showSnackbar }) {
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div>
-          <h1 className="login-card__logo" style={{ fontSize: '2.4rem', color: 'var(--md-sys-color-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: '36px' }}>chat_bubble</span>
-            TempChats
-          </h1>
-          <p className="body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)', textAlign: 'center', marginTop: '8px' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div
+            className="action-card__icon"
+            style={{ margin: '0 auto 16px', width: '64px', height: '64px', borderRadius: '20px' }}
+          >
+            <span className="material-symbols-rounded" style={{ fontSize: '34px' }} aria-hidden="true">chat_bubble</span>
+          </div>
+          <h1 className="display-small" style={{ letterSpacing: '-0.02em' }}>TempChats</h1>
+          <p className="body-medium text-muted" style={{ marginTop: '8px' }}>
             Temporary, self-destructing chat rooms. No email or password needed.
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="md-text-field">
             <input
               type="text"
@@ -81,16 +118,32 @@ export default function LoginView({ onLoginSuccess, showSnackbar }) {
               minLength={3}
               maxLength={20}
               autoComplete="off"
+              inputMode="text"
+              enterKeyHint="go"
               disabled={loading}
               autoFocus
             />
-            <label className="md-text-field__label">Choose a Username</label>
+            <label className="md-text-field__label">Choose a username</label>
           </div>
 
-          <button type="submit" className="md-btn md-btn--filled" disabled={loading} style={{ height: '48px' }}>
-            {loading ? 'Entering...' : 'Enter TempChats'}
+          <button type="submit" className="md-btn md-btn--filled" disabled={loading} style={{ minHeight: '54px' }}>
+            {loading ? (
+              <>
+                <span className="material-symbols-rounded" style={{ fontSize: '20px' }} aria-hidden="true">hourglass_top</span>
+                <span>Entering...</span>
+              </>
+            ) : (
+              <>
+                <span>Enter TempChats</span>
+                <span className="material-symbols-rounded" style={{ fontSize: '20px' }} aria-hidden="true">arrow_forward</span>
+              </>
+            )}
           </button>
         </form>
+
+        <p className="body-small text-muted" style={{ textAlign: 'center' }}>
+          3–20 characters — letters, numbers or underscores.
+        </p>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { db, firebase } from '../firebase';
 import TopAppBar from '../components/TopAppBar';
+import { generateSecureCode } from '../utils/beta';
 
 export default function CreateRoomView({ user, onNavigate, onLogout, showSnackbar, onOpenSettings }) {
   const [roomName, setRoomName] = useState('');
@@ -37,7 +38,7 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
     try {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + finalDuration);
-      const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const roomCode = generateSecureCode(6);
 
       const newRoomRef = await db.collection('rooms').add({
         name: cleanName,
@@ -64,14 +65,25 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
 
   return (
     <div className="home-layout">
-      <TopAppBar user={user} onLogout={onLogout} onBack={() => onNavigate('home')} title="Create Room" onOpenSettings={onOpenSettings} />
+      <TopAppBar user={user} onLogout={onLogout} onBack={() => onNavigate('home')} title="Create room" onOpenSettings={onOpenSettings} />
 
       <main className="home-content">
-        <form className="md-card md-card--elevated" onSubmit={handleCreate} style={{ padding: '32px', maxWidth: '640px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '28px' }}>
-          
+        <form
+          className="md-card md-card--elevated"
+          onSubmit={handleCreate}
+          style={{
+            padding: 'clamp(18px, 4vw, 32px)',
+            maxWidth: '640px',
+            margin: '0 auto',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '24px',
+            borderRadius: 'var(--md-sys-shape-corner-extra-large)'
+          }}
+        >
           {/* Room Name */}
           <div>
-            <h4 className="title-small" style={{ color: 'var(--md-sys-color-primary)', marginBottom: '12px' }}>Room Details</h4>
+            <h4 className="title-small" style={{ color: 'var(--md-sys-color-primary)', marginBottom: '12px' }}>Room details</h4>
             <div className="md-text-field">
               <input
                 type="text"
@@ -82,30 +94,28 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
                 required
                 maxLength={50}
                 autoComplete="off"
+                enterKeyHint="done"
                 disabled={loading}
                 autoFocus
               />
-              <label className="md-text-field__label">Room Name</label>
+              <label className="md-text-field__label">Room name</label>
             </div>
           </div>
 
           {/* Room Theme Accent */}
           <div>
-            <h4 className="title-small" style={{ color: 'var(--md-sys-color-primary)', marginBottom: '12px' }}>Room Theme Accent</h4>
-            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+            <h4 className="title-small" style={{ color: 'var(--md-sys-color-primary)', marginBottom: '12px' }}>Theme accent</h4>
+            <div className="chip-row">
               {themeOptions.map((opt) => (
                 <button
                   type="button"
                   key={opt.id}
-                  className="md-btn"
+                  className={`md-chip ${theme === opt.id ? 'md-chip--selected' : ''}`}
                   onClick={() => setTheme(opt.id)}
-                  style={{
-                    backgroundColor: theme === opt.id ? opt.color : 'var(--md-sys-color-surface-container-high)',
-                    color: theme === opt.id ? '#000' : 'var(--md-sys-color-on-surface)',
-                    fontWeight: 600
-                  }}
+                  aria-pressed={theme === opt.id}
+                  style={theme === opt.id ? { backgroundColor: opt.color, borderColor: opt.color, color: '#10121f' } : undefined}
                 >
-                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: opt.color, display: 'inline-block' }}></span>
+                  <span style={{ width: '12px', height: '12px', borderRadius: '50%', backgroundColor: opt.color, display: 'inline-block' }} />
                   <span>{opt.name}</span>
                 </button>
               ))}
@@ -113,20 +123,21 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
           </div>
 
           {/* Private Room Switch */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'var(--md-sys-color-surface-container-high)', padding: '16px 20px', borderRadius: '16px' }}>
-            <div>
+          <div className="setting-row">
+            <div className="setting-row__text">
               <div className="title-small" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }}>lock</span>
-                <span>Private Room (Unlocks Encryption & Custom Lifetime)</span>
+                <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)', fontSize: '20px' }} aria-hidden="true">lock</span>
+                <span>Private room</span>
               </div>
-              <div className="body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)', marginTop: '2px' }}>
-                Requires a 6-character code to join. Messages are End-to-End Encrypted.
+              <div className="body-small text-muted" style={{ marginTop: '2px' }}>
+                Requires a 6-character code to join. Messages are end-to-end encrypted and lifetimes can be customised.
               </div>
             </div>
             <label className="md-switch">
               <input
                 type="checkbox"
                 checked={isPrivate}
+                aria-label="Private room"
                 onChange={(e) => {
                   const val = e.target.checked;
                   setIsPrivate(val);
@@ -146,28 +157,30 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
           {/* Duration */}
           <div>
             <h4 className="title-small" style={{ color: 'var(--md-sys-color-primary)', marginBottom: '12px' }}>
-              Room Lifetime {!isPrivate && <span style={{ fontSize: '0.8rem', opacity: 0.7 }}>(Public rooms capped at 24h)</span>}
+              Room lifetime {!isPrivate && <span className="body-small text-muted">(public rooms capped at 24h)</span>}
             </h4>
-            
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+
+            <div className="chip-row">
               {durationOptions.map((opt) => (
                 <button
                   type="button"
                   key={opt}
-                  className={`md-btn ${(!isCustomDuration && duration === opt) ? 'md-btn--filled' : 'md-btn--tonal'}`}
+                  className={`md-chip ${(!isCustomDuration && duration === opt) ? 'md-chip--selected' : ''}`}
+                  aria-pressed={!isCustomDuration && duration === opt}
                   onClick={() => { setDuration(opt); setIsCustomDuration(false); }}
                 >
-                  {opt} {opt === 1 ? 'Hour' : 'Hours'}
+                  {opt} {opt === 1 ? 'hour' : 'hours'}
                 </button>
               ))}
 
               {isPrivate && (
                 <button
                   type="button"
-                  className={`md-btn ${isCustomDuration ? 'md-btn--filled' : 'md-btn--tonal'}`}
+                  className={`md-chip ${isCustomDuration ? 'md-chip--selected' : ''}`}
+                  aria-pressed={isCustomDuration}
                   onClick={() => setIsCustomDuration(true)}
                 >
-                  Custom (Up to 7 Days)
+                  Custom (up to 7 days)
                 </button>
               )}
             </div>
@@ -180,11 +193,12 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
                   placeholder=" "
                   min={1}
                   max={168}
+                  inputMode="numeric"
                   value={customHours}
                   onChange={(e) => setCustomHours(e.target.value)}
                   required
                 />
-                <label className="md-text-field__label">Lifetime in Hours (1 to 168)</label>
+                <label className="md-text-field__label">Lifetime in hours (1 to 168)</label>
               </div>
             )}
           </div>
@@ -192,34 +206,32 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
           {/* Moderation */}
           <div>
             <h4 className="title-small" style={{ color: 'var(--md-sys-color-primary)', marginBottom: '12px' }}>
-              Content Moderation Filter
+              Content moderation filter
             </h4>
             <select
               className="md-select"
               value={moderation}
               onChange={(e) => setModeration(e.target.value)}
               disabled={loading}
+              aria-label="Content moderation filter"
             >
-              <option value="minimal">Minimal (Filter Slurs & Severe Hate Speech)</option>
-              <option value="advanced">Advanced (Filter Profanity & Severe Hate Speech)</option>
-              {isPrivate && (
-                <option value="none">Off / Unfiltered (Private Room Exclusive)</option>
-              )}
+              <option value="minimal">Minimal (slurs & severe hate speech)</option>
+              <option value="advanced">Advanced (profanity & severe hate speech)</option>
+              {isPrivate && <option value="none">Off / unfiltered (private rooms only)</option>}
             </select>
           </div>
 
           {/* Read Receipts Switch */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div className="title-small">Read Receipts</div>
-              <div className="body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
-                Show when users read messages in this room
-              </div>
+          <div className="setting-row">
+            <div className="setting-row__text">
+              <div className="title-small">Read receipts</div>
+              <div className="body-small text-muted">Show when users read messages in this room</div>
             </div>
             <label className="md-switch">
               <input
                 type="checkbox"
                 checked={readReceipts}
+                aria-label="Read receipts"
                 onChange={(e) => setReadReceipts(e.target.checked)}
                 disabled={loading}
               />
@@ -230,12 +242,12 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
           </div>
 
           {/* Actions */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px' }}>
+          <div className="md-dialog__actions" style={{ marginTop: '4px' }}>
             <button type="button" className="md-btn md-btn--tonal" onClick={() => onNavigate('home')} disabled={loading}>
               Cancel
             </button>
             <button type="submit" className="md-btn md-btn--filled" disabled={loading}>
-              {loading ? 'Creating...' : 'Create Room'}
+              {loading ? 'Creating...' : 'Create room'}
             </button>
           </div>
         </form>

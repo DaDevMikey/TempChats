@@ -8,7 +8,10 @@ Secure, temporary chat rooms that auto-destruct. Built with React 18, Vite, and 
 
 - **Instant Rooms** — Create a chat room in seconds with a unique share code
 - **No Registration** — Just pick a username and start chatting anonymously
-- **Floating Message Actions** — Hover over any message to reply, edit, or delete cleanly
+- **Message Actions Everywhere** — Hover or right-click on desktop, long-press on mobile, to react, reply, copy, edit, or delete
+- **Direct Messages (Beta)** — Every account gets a random handle for one-to-one, end-to-end encrypted chats that clear after 24 hours. Rolling out gradually: every app load gives a non-beta account a small chance of being enrolled (enrolment never reverts on its own), and anyone can opt in or out at will from Settings. Backed by the `tags.beta` / `tags.betaOptOut` flags on the Firestore user document
+- **Release Notes** — In-app "What's new" dialog, shown once per version and reopenable from Settings
+- **Mobile First** — Responsive Material 3 Expressive layouts with One UI ergonomics, safe-area and on-screen keyboard handling
 - **Prominent Room Cards** — Modern M3 cards with expiration badges and direct Join buttons
 - **Read Receipts** — Optional room feature displaying who has read the latest messages
 - **Auto-Destruct** — Rooms and all messages are permanently deleted when they expire
@@ -22,7 +25,7 @@ Secure, temporary chat rooms that auto-destruct. Built with React 18, Vite, and 
 ## Tech Stack
 
 - **Frontend:** React 18, Vite (Fast HMR & build optimization)
-- **Design System:** Material 3 Expressive (custom CSS implementation)
+- **Design System:** Material 3 Expressive with One UI inspired ergonomics (custom CSS implementation)
 - **Database:** Firebase Firestore (real-time listeners)
 - **Auth:** Firebase Anonymous Authentication
 - **Icons:** Material Symbols Rounded
@@ -69,6 +72,30 @@ Secure, temporary chat rooms that auto-destruct. Built with React 18, Vite, and 
 2. Set the **Build Command** to: `npm run build`
 3. Set the **Output Directory** to: `dist`
 4. Deploy!
+
+## Data Model & Security
+
+Firestore collections:
+
+| Collection | Contents | Who can read it |
+| --- | --- | --- |
+| `rooms` | Public and private room metadata (including the private room code) | Any signed-in client — the home list and join-by-code lookup both query it |
+| `direct_threads` | Beta direct-message threads and their encryption key | Only the two participants |
+| `messages` | Message documents for both rooms and direct threads | Any signed-in client (direct message bodies are encrypted with the thread key) |
+| `usernames` / `handles` | One-shot reservation documents that bind a name or DM handle to an account | Any signed-in client, writable once by the owner |
+| `users` | Profile document with rollout tags | Only the account that owns it |
+
+`firestore.rules` enforces that rooms and messages are only edited or deleted by
+their owner or author, that usernames and DM handles are immutable once claimed,
+that a message's `sender` matches the reservation held by the caller, and that
+messages can only be posted into a direct thread the caller belongs to. Room and
+thread codes — which are also the encryption secrets — are generated from
+`crypto.getRandomValues`.
+
+Known, accepted limitations: message ciphertext and metadata are readable by any
+signed-in client, private room codes are visible to anyone listing rooms (this is
+what makes join-by-code work), and typing/presence markers inside public rooms are
+not bound to an identity.
 
 ## License
 

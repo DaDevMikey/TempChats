@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { db } from '../firebase';
 import TopAppBar from '../components/TopAppBar';
 import RoomCard from '../components/RoomCard';
 import PrivacyBanner from '../components/PrivacyBanner';
 import DialogModal from '../components/DialogModal';
 
-export default function HomeView({ user, onNavigate, onLogout, onOpenPrivacyModal, onOpenSettings, showSnackbar }) {
+export default function HomeView({ user, onNavigate, onLogout, onOpenPrivacyModal, onOpenSettings, showSnackbar, isBeta = false }) {
   const [publicRooms, setPublicRooms] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isJoinCodeOpen, setIsJoinCodeOpen] = useState(false);
@@ -30,19 +30,27 @@ export default function HomeView({ user, onNavigate, onLogout, onOpenPrivacyModa
       );
 
     return () => unsub();
-  }, [showSnackbar]);
+  }, []);
 
   const handleJoinByCode = async (code) => {
     if (!code || !code.trim()) return;
     const cleanCode = code.trim().toUpperCase();
 
+    // Room codes are always 6 alphanumeric characters. Validating first keeps
+    // the lookup off private direct-thread codes, which are longer.
+    if (!/^[A-Z0-9]{6}$/.test(cleanCode)) {
+      showSnackbar('Room codes are 6 letters or numbers', 'error');
+      setIsJoinCodeOpen(false);
+      return;
+    }
+
     try {
-      const snap = await db.collection('rooms').where('code', '==', cleanCode).get();
-      if (snap.empty) {
+      const snap = await db.collection('rooms').where('code', '==', cleanCode).limit(5).get();
+      const match = snap.docs.find((doc) => !doc.data().isDirect);
+      if (!match) {
         showSnackbar('Invalid or expired room code', 'error');
       } else {
-        const roomDoc = snap.docs[0];
-        onNavigate(`chat/${roomDoc.id}`);
+        onNavigate(`chat/${match.id}`);
       }
     } catch (e) {
       console.error('Join code error:', e);
@@ -52,73 +60,128 @@ export default function HomeView({ user, onNavigate, onLogout, onOpenPrivacyModa
     }
   };
 
-  const filteredRooms = publicRooms.filter((r) =>
-    r.name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredRooms = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return publicRooms;
+    return publicRooms.filter((r) => r.name.toLowerCase().includes(q));
+  }, [publicRooms, searchQuery]);
+
+  const handleJoinRoom = useCallback((id) => onNavigate(`chat/${id}`), [onNavigate]);
 
   return (
     <div className="home-layout">
       <TopAppBar user={user} onLogout={onLogout} onOpenSettings={onOpenSettings} />
 
       <main className="home-content">
-        <PrivacyBanner onOpenPrivacyModal={onOpenPrivacyModal} />
+        {/* One UI style large title */}
+        <div className="large-title">
+          <div className="large-title__eyebrow">Ephemeral by design</div>
+          <h1 className="large-title__text">Hi, {user.username}</h1>
+          <p className="large-title__sub">Spin up a room, share the code, and everything disappears when it expires.</p>
+        </div>
 
         {/* Action Cards */}
         <div className="home-actions">
-          <div className="action-card" onClick={() => onNavigate('create')}>
+          <button type="button" className="action-card" onClick={() => onNavigate('create')}>
             <div className="action-card__icon">
-              <span className="material-symbols-rounded">add</span>
+              <span className="material-symbols-rounded" aria-hidden="true">add</span>
             </div>
-            <h3 className="title-medium">Create Room</h3>
-            <p className="body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)', marginTop: '4px' }}>
-              Start a new temporary, self-destructing chat
-            </p>
-          </div>
+            <div style={{ minWidth: 0 }}>
+              <h3 className="title-medium">Create room</h3>
+              <p className="body-medium text-muted" style={{ marginTop: '2px' }}>
+                Start a new self-destructing chat
+              </p>
+            </div>
+          </button>
 
-          <div className="action-card" onClick={() => setIsJoinCodeOpen(true)}>
-            <div className="action-card__icon" style={{ backgroundColor: 'var(--md-sys-color-secondary-container)', color: 'var(--md-sys-color-on-secondary-container)' }}>
-              <span className="material-symbols-rounded">vpn_key</span>
+          <button type="button" className="action-card" onClick={() => setIsJoinCodeOpen(true)}>
+            <div
+              className="action-card__icon"
+              style={{ backgroundColor: 'var(--md-sys-color-secondary-container)', color: 'var(--md-sys-color-on-secondary-container)' }}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">vpn_key</span>
             </div>
-            <h3 className="title-medium">Join with Code</h3>
-            <p className="body-medium" style={{ color: 'var(--md-sys-color-on-surface-variant)', marginTop: '4px' }}>
-              Enter a private 6-character room code
-            </p>
-          </div>
+            <div style={{ minWidth: 0 }}>
+              <h3 className="title-medium">Join with code</h3>
+              <p className="body-medium text-muted" style={{ marginTop: '2px' }}>
+                Enter a private 6-character room code
+              </p>
+            </div>
+          </button>
         </div>
+
+        {isBeta && (
+          <button type="button" className="action-card" onClick={() => onNavigate('dms')} style={{ marginBottom: '20px' }}>
+            <div
+              className="action-card__icon"
+              style={{ backgroundColor: 'var(--md-sys-color-tertiary-container, var(--md-sys-color-secondary-container))', color: 'var(--md-sys-color-on-secondary-container)' }}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">forum</span>
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <h3 className="title-medium" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <span>Direct messages</span>
+                <span className="beta-badge">Beta</span>
+              </h3>
+              <p className="body-medium text-muted" style={{ marginTop: '2px' }}>
+                Chat one to one with a handle — threads clear after 24 hours
+              </p>
+            </div>
+          </button>
+        )}
 
         {/* Search */}
         <div className="search-bar">
-          <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>search</span>
+          <span className="material-symbols-rounded text-muted" aria-hidden="true">search</span>
           <input
-            type="text"
+            type="search"
             className="search-bar__input"
-            placeholder="Search public rooms..."
+            placeholder="Search public rooms"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
+            enterKeyHint="search"
+            aria-label="Search public rooms"
           />
+          {searchQuery && (
+            <button className="md-btn md-btn--icon" onClick={() => setSearchQuery('')} aria-label="Clear search" style={{ width: '36px', height: '36px', minHeight: '36px' }}>
+              <span className="material-symbols-rounded" style={{ fontSize: '20px' }}>close</span>
+            </button>
+          )}
         </div>
 
         {/* Public Rooms */}
-        <h2 className="title-large" style={{ marginTop: '32px' }}>Public Rooms</h2>
+        <div className="section-header">
+          <h2 className="title-large">Public rooms</h2>
+          <span className="body-small text-muted">{filteredRooms.length} live</span>
+        </div>
+
         {filteredRooms.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--md-sys-color-on-surface-variant)' }}>
-            <span className="material-symbols-rounded" style={{ fontSize: '48px', opacity: 0.5 }}>forum</span>
+          <div className="empty-state">
+            <span className="material-symbols-rounded" aria-hidden="true">forum</span>
             <h3 className="title-medium" style={{ marginTop: '12px' }}>No public rooms found</h3>
             <p className="body-medium" style={{ marginTop: '4px' }}>Be the first to create one!</p>
           </div>
         ) : (
           <div className="rooms-grid">
             {filteredRooms.map((room) => (
-              <RoomCard key={room.id} room={room} onJoin={(id) => onNavigate(`chat/${id}`)} />
+              <RoomCard key={room.id} room={room} onJoin={handleJoinRoom} />
             ))}
           </div>
         )}
+
+        <PrivacyBanner onOpenPrivacyModal={onOpenPrivacyModal} />
       </main>
+
+      {/* Thumb-reachable primary action on mobile */}
+      <button type="button" className="fab" onClick={() => onNavigate('create')} aria-label="Create room">
+        <span className="material-symbols-rounded" aria-hidden="true">add</span>
+        <span>New room</span>
+      </button>
 
       {/* Join by Code Modal */}
       <DialogModal
         isOpen={isJoinCodeOpen}
-        title="Join Private Room"
+        title="Join private room"
         content="Enter the 6-character room code provided by the creator:"
         showInput={true}
         inputPlaceholder="e.g. X7K9A2"

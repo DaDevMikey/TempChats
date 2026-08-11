@@ -1,99 +1,120 @@
 import React from 'react';
 
-export default function UserSettingsModal({ isOpen, settings, onUpdateSettings, onClose, onOpenPrivacyModal }) {
+const SETTINGS = [
+  {
+    key: 'soundEnabled',
+    icon: 'notifications_active',
+    title: 'Message chimes',
+    description: 'Play a subtle chime when sending & receiving messages'
+  },
+  {
+    key: 'compactMode',
+    icon: 'density_small',
+    title: 'Compact spacing',
+    description: 'Reduce padding between chat bubbles'
+  },
+  {
+    key: 'readReceiptsEnabled',
+    icon: 'done_all',
+    title: 'Share read receipts',
+    description: 'Allow rooms to show when you have read messages'
+  }
+];
+
+export default function UserSettingsModal({ isOpen, settings, onUpdateSettings, onClose, onOpenPrivacyModal, onOpenReleaseNotes, isBeta = false, onUpdateBeta }) {
   if (!isOpen) return null;
 
   return (
-    <div className="md-dialog-overlay" onClick={onClose}>
-      <div className="md-dialog" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 className="md-dialog__title" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }}>settings</span>
-            User Settings
+    <div className="md-dialog-overlay" onClick={onClose} role="presentation">
+      <div className="md-dialog" onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="User settings">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+          <h2 className="md-dialog__title" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }} aria-hidden="true">settings</span>
+            Settings
           </h2>
-          <button className="md-btn md-btn--icon" onClick={onClose} style={{ width: '32px', height: '32px' }}>
+          <button className="md-btn md-btn--icon" onClick={onClose} aria-label="Close settings">
             <span className="material-symbols-rounded">close</span>
           </button>
         </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '12px' }}>
-          {/* Sound Toggle */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div className="title-small">Message Chimes</div>
-              <div className="body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
-                Play a subtle chime when sending & receiving messages
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {SETTINGS.map((item) => (
+            <div className="setting-row" key={item.key}>
+              <div className="setting-row__text" style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)', fontSize: '22px', marginTop: '2px' }} aria-hidden="true">
+                  {item.icon}
+                </span>
+                <div>
+                  <div className="title-small">{item.title}</div>
+                  <div className="body-small text-muted">{item.description}</div>
+                </div>
               </div>
+              <label className="md-switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(settings[item.key])}
+                  onChange={(e) => onUpdateSettings({ ...settings, [item.key]: e.target.checked })}
+                  aria-label={item.title}
+                />
+                <span className="md-switch__track">
+                  <span className="md-switch__thumb"></span>
+                </span>
+              </label>
             </div>
-            <label className="md-switch">
-              <input
-                type="checkbox"
-                checked={settings.soundEnabled}
-                onChange={(e) => onUpdateSettings({ ...settings, soundEnabled: e.target.checked })}
-              />
-              <span className="md-switch__track">
-                <span className="md-switch__thumb"></span>
-              </span>
-            </label>
-          </div>
+          ))}
 
-          {/* Compact Mode Toggle */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div className="title-small">Compact Message Spacing</div>
-              <div className="body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
-                Reduce padding between chat bubbles
+          {onUpdateBeta && (
+            <div className="setting-row">
+              <div className="setting-row__text" style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)', fontSize: '22px', marginTop: '2px' }} aria-hidden="true">
+                  science
+                </span>
+                <div>
+                  <div className="title-small" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span>Direct messages</span>
+                    <span className="beta-badge">Beta</span>
+                  </div>
+                  <div className="body-small text-muted">
+                    Try one-to-one chats that clear after 24 hours. This feature is still rolling out gradually, so turn it on here to
+                    join early or turn it off to leave the beta.
+                  </div>
+                </div>
               </div>
+              <label className="md-switch">
+                <input
+                  type="checkbox"
+                  checked={isBeta}
+                  onChange={(e) => onUpdateBeta(e.target.checked)}
+                  aria-label="Direct messages beta"
+                />
+                <span className="md-switch__track">
+                  <span className="md-switch__thumb"></span>
+                </span>
+              </label>
             </div>
-            <label className="md-switch">
-              <input
-                type="checkbox"
-                checked={settings.compactMode}
-                onChange={(e) => onUpdateSettings({ ...settings, compactMode: e.target.checked })}
-              />
-              <span className="md-switch__track">
-                <span className="md-switch__thumb"></span>
-              </span>
-            </label>
-          </div>
-
-          {/* Read Receipts Preference */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <div className="title-small">Share Read Receipts</div>
-              <div className="body-small" style={{ color: 'var(--md-sys-color-on-surface-variant)' }}>
-                Allow rooms to show when you have read messages
-              </div>
-            </div>
-            <label className="md-switch">
-              <input
-                type="checkbox"
-                checked={settings.readReceiptsEnabled}
-                onChange={(e) => onUpdateSettings({ ...settings, readReceiptsEnabled: e.target.checked })}
-              />
-              <span className="md-switch__track">
-                <span className="md-switch__thumb"></span>
-              </span>
-            </label>
-          </div>
-
-          <hr style={{ borderColor: 'var(--md-sys-color-outline-variant)', opacity: 0.4 }} />
+          )}
 
           <button
             type="button"
-            className="md-btn md-btn--tonal"
+            className="action-sheet__item"
             onClick={() => { onClose(); onOpenPrivacyModal(); }}
-            style={{ justifyContent: 'flex-start' }}
           >
-            <span className="material-symbols-rounded">shield_lock</span>
-            <span>View Privacy Terms & Trust Policy</span>
+            <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }} aria-hidden="true">shield_lock</span>
+            <span>Privacy terms & trust policy</span>
+          </button>
+
+          <button
+            type="button"
+            className="action-sheet__item"
+            onClick={() => { onClose(); onOpenReleaseNotes?.(); }}
+          >
+            <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)' }} aria-hidden="true">news</span>
+            <span>What&rsquo;s new (release notes)</span>
           </button>
         </div>
 
-        <div className="md-dialog__actions" style={{ marginTop: '12px' }}>
-          <button className="md-btn md-btn--filled" onClick={onClose}>
-            Done
-          </button>
+        <div className="md-dialog__actions">
+          <button className="md-btn md-btn--filled" onClick={onClose}>Done</button>
         </div>
       </div>
     </div>
