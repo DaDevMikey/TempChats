@@ -6,6 +6,7 @@ import DialogModal from '../components/DialogModal';
 import { encryptText, decryptText } from '../utils/crypto';
 import { playChime } from '../utils/audio';
 import { getQRCodeUrl } from '../utils/qr';
+import { DIRECT_THREADS } from '../utils/beta';
 
 // Only the most recent slice of a room is rendered — older messages expire anyway
 // and unbounded listeners are the main source of jank on low-end phones.
@@ -40,7 +41,10 @@ const themePalettes = {
 const DEFAULT_PRIMARY = '#a5b0ff';
 const DEFAULT_PRIMARY_CONTAINER = '#3b37a8';
 
-export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showSnackbar, onOpenSettings, settings }) {
+export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showSnackbar, onOpenSettings, settings, isDirect = false }) {
+  const collectionName = isDirect ? DIRECT_THREADS : 'rooms';
+  const roomRef = useMemo(() => (roomId ? db.collection(collectionName).doc(roomId) : null), [collectionName, roomId]);
+
   const [room, setRoom] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputVal, setInputVal] = useState('');
@@ -82,7 +86,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
   useEffect(() => {
     if (!roomId) return undefined;
 
-    const unsub = db.collection('rooms').doc(roomId).onSnapshot(
+    const unsub = roomRef.onSnapshot(
       (doc) => {
         if (!doc.exists) {
           showSnackbar('Room has been deleted or expired', 'error');
@@ -121,7 +125,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
   useEffect(() => {
     if (!roomId || !user) return undefined;
 
-    const presenceRef = db.collection('rooms').doc(roomId).collection('presence').doc(user.username);
+    const presenceRef = roomRef.collection('presence').doc(user.username);
     const pingPresence = () => {
       if (document.hidden) return;
       presenceRef.set({ last_seen: Date.now() }).catch(() => {});
@@ -142,7 +146,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
   useEffect(() => {
     if (!roomId) return undefined;
 
-    const unsub = db.collection('rooms').doc(roomId).collection('presence').onSnapshot((snapshot) => {
+    const unsub = roomRef.collection('presence').onSnapshot((snapshot) => {
       const now = Date.now();
       const active = snapshot.docs
         .filter((d) => {
@@ -218,12 +222,24 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
               rawList.map(async (msg) => {
                 const key = `${msg.id}:${msg.content}`;
                 if (!cache.has(key)) cache.set(key, await decryptText(msg.content, roomCode));
-                return { ...msg, decryptedContent: cache.get(key) };
+
+                let decryptedReply;
+                if (msg.reply_to?.content) {
+                  const replyKey = `${msg.id}:reply:${msg.reply_to.content}`;
+                  if (!cache.has(replyKey)) cache.set(replyKey, await decryptText(msg.reply_to.content, roomCode));
+                  decryptedReply = cache.get(replyKey);
+                }
+
+                return { ...msg, decryptedContent: cache.get(key), decryptedReply };
               })
             );
 
-            if (cache.size > MESSAGE_WINDOW * 2) {
-              const live = new Set(rawList.map((m) => `${m.id}:${m.content}`));
+            if (cache.size > MESSAGE_WINDOW * 4) {
+              const live = new Set(rawList.flatMap((m) => (
+                m.reply_to?.content
+                  ? [`${m.id}:${m.content}`, `${m.id}:reply:${m.reply_to.content}`]
+                  : [`${m.id}:${m.content}`]
+              )));
               cache.forEach((_, key) => { if (!live.has(key)) cache.delete(key); });
             }
           }
@@ -264,7 +280,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     const now = Date.now();
     if (!force && now - lastReceiptRef.current < READ_RECEIPT_THROTTLE_MS) return;
     lastReceiptRef.current = now;
-    db.collection('rooms').doc(roomId).collection('read_receipts').doc(user.username)
+    roomRef.collection('read_receipts').doc(user.username)
       .set({ timestamp: now })
       .catch(() => {});
   }, [room?.readReceipts, roomId, user?.username]);
@@ -292,7 +308,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
   useEffect(() => {
     if (!roomId) return undefined;
 
-    const unsub = db.collection('rooms').doc(roomId).collection('typing').onSnapshot((snapshot) => {
+    const unsub = roomRef.collection('typing').onSnapshot((snapshot) => {
       const typers = [];
       snapshot.docs.forEach((doc) => {
         if (doc.id === user.username) return;
@@ -311,7 +327,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
   useEffect(() => {
     if (!roomId || !room?.readReceipts) return undefined;
 
-    const unsub = db.collection('rooms').doc(roomId).collection('read_receipts').onSnapshot((snapshot) => {
+    const unsub = roomRef.collection('read_receipts').onSnapshot((snapshot) => {
       setReaders(snapshot.docs.filter((doc) => doc.id !== user.username).map((doc) => doc.id));
     });
 
@@ -341,7 +357,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     if (val.trim().length > 0) {
       if (!isTypingRef.current) {
         isTypingRef.current = true;
-        db.collection('rooms').doc(roomId).collection('typing').doc(user.username).set({
+        roomRef.collection('typing').doc(user.username).set({
           updated_at: firebase.firestore.FieldValue.serverTimestamp()
         }).catch(() => {});
       }
@@ -349,7 +365,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
       clearTimeout(typingTimeoutRef.current);
       typingTimeoutRef.current = setTimeout(() => {
         isTypingRef.current = false;
-        db.collection('rooms').doc(roomId).collection('typing').doc(user.username).delete().catch(() => {});
+        roomRef.collection('typing').doc(user.username).delete().catch(() => {});
       }, 3000);
     }
   };
@@ -371,7 +387,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     if (inputRef.current) inputRef.current.style.height = 'auto';
     isTypingRef.current = false;
     clearTimeout(typingTimeoutRef.current);
-    db.collection('rooms').doc(roomId).collection('typing').doc(user.username).delete().catch(() => {});
+    roomRef.collection('typing').doc(user.username).delete().catch(() => {});
 
     const moderated = moderateContent(cleanContent, room.moderationLevel);
     const finalContent = room.isPrivate && room.code
@@ -391,10 +407,13 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     if (isBurnAfterReading) messageData.isBurnAfterReading = true;
 
     if (replyTo) {
+      // Quoted previews are stored with the same protection as the message
+      // itself, otherwise private conversations would leak in plaintext.
+      const quoted = replyTo.decryptedContent || replyTo.content;
       messageData.reply_to = {
         id: replyTo.id,
         sender: replyTo.sender,
-        content: replyTo.decryptedContent || replyTo.content
+        content: room.isPrivate && room.code ? await encryptText(quoted, room.code) : quoted
       };
       setReplyTo(null);
     }
@@ -405,7 +424,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
       await db.collection('messages').add(messageData);
       if (settings.soundEnabled) playChime('send');
 
-      db.collection('rooms').doc(roomId).update({
+      roomRef.update({
         latestMessage: room.isPrivate ? '🔒 [Encrypted message]' : moderated,
         updated_at: firebase.firestore.FieldValue.serverTimestamp()
       }).catch(() => {});

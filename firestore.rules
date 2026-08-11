@@ -19,9 +19,43 @@ service cloud.firestore {
       return data.keys().hasAny(['expires_at']) && data.expires_at < request.time;
     }
 
-    // Users collection
-    match /users/{userId} {
+    // A username is owned by whoever reserved it first. Messages are bound to
+    // that reservation so nobody can post under someone else's name.
+    function usernamePath(name) {
+      return /databases/$(database)/documents/usernames/$(name.lower());
+    }
+
+    function ownsName(name) {
+      return name is string
+        && name.size() > 0
+        && (!exists(usernamePath(name))
+            || get(usernamePath(name)).data.authUid == request.auth.uid);
+    }
+
+    // Username reservations: created once, never edited, released only by the
+    // account that holds them.
+    match /usernames/{name} {
       allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['authUid', 'userId', 'username']);
+      allow update: if false;
+      allow delete: if isSignedIn() && resource.data.authUid == request.auth.uid;
+    }
+
+    // Direct-message handle reservations, same one-shot ownership model.
+    match /handles/{handle} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.authUid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['authUid', 'username']);
+      allow update: if false;
+      allow delete: if isSignedIn() && resource.data.authUid == request.auth.uid;
+    }
+
+    // Users collection — a profile is private to the account that owns it.
+    match /users/{userId} {
+      allow read: if isSignedIn() && resource.data.authUid == request.auth.uid;
 
       allow create: if isSignedIn()
         && request.resource.data.authUid == request.auth.uid
@@ -31,8 +65,8 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['username', 'authUid', 'dmHandle', 'tags', 'created_at']);
 
       // Owners may only change their rollout tags, plus a one-time backfill of
-      // their direct-message handle. Usernames, handles and the auth binding
-      // are immutable so identities cannot be hijacked or impersonated.
+      // their direct-message handle. Usernames and the auth binding are
+      // immutable so identities cannot be hijacked or impersonated.
       allow update: if isSignedIn()
         && resource.data.authUid == request.auth.uid
         && request.resource.data.authUid == resource.data.authUid
@@ -44,27 +78,16 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.authUid == request.auth.uid;
     }
 
-    // Rooms collection
+    // Public and private rooms. Rooms are discoverable by design: the home
+    // screen lists public rooms and joining a private room means looking it up
+    // by its code, so any signed-in client may read this collection.
     match /rooms/{roomId} {
-
-      function isDirectRoom(data) {
-        return data.keys().hasAny(['isDirect']) && data.isDirect == true;
-      }
-
-      function isParticipant(data) {
-        return data.keys().hasAny(['participants'])
-          && data.participants is list
-          && request.auth.uid in data.participants;
-      }
 
       function isRoomOwner() {
         return resource.data.authUid == request.auth.uid;
       }
 
-      // Direct message threads — including their encryption code — are only
-      // visible to the two people in them.
-      allow read: if isSignedIn()
-        && (!isDirectRoom(resource.data) || isParticipant(resource.data));
+      allow read: if isSignedIn();
 
       allow create: if isSignedIn()
         && request.resource.data.authUid == request.auth.uid
@@ -72,26 +95,17 @@ service cloud.firestore {
         && request.resource.data.name.size() > 0
         && request.resource.data.name.size() <= 120
         && request.resource.data.creator is string
-        && request.resource.data.expires_at is timestamp
-        && (!isDirectRoom(request.resource.data)
-            || (isParticipant(request.resource.data) && request.resource.data.participants.size() == 2));
+        && ownsName(request.resource.data.creator)
+        && request.resource.data.expires_at is timestamp;
 
-      // Owners can manage their room (including handing it over on logout) but
-      // can never turn it into, or out of, a direct thread. Everyone else may
-      // only bump the conversation preview of a room they can post in.
+      // Owners manage their own room (including handing it over on logout).
+      // Everyone else may only bump the conversation preview.
       allow update: if isSignedIn() && (
-        (isRoomOwner() && !changedKeys().hasAny(['isDirect', 'participants', 'code']))
-        || (onlyChanged(['latestMessage', 'updated_at'])
-            && (!isDirectRoom(resource.data) || isParticipant(resource.data)))
+        isRoomOwner() || onlyChanged(['latestMessage', 'updated_at'])
       );
 
-      allow delete: if isSignedIn() && (
-        isRoomOwner()
-        || isExpired(resource.data)
-        || (isDirectRoom(resource.data) && isParticipant(resource.data))
-      );
+      allow delete: if isSignedIn() && (isRoomOwner() || isExpired(resource.data));
 
-      // Subcollections under rooms
       match /typing/{doc} {
         allow read, write: if isSignedIn();
       }
@@ -103,15 +117,60 @@ service cloud.firestore {
       }
     }
 
-    // Messages collection
-    match /messages/{messageId} {
+    // Direct message threads (beta). Everything about a thread, including the
+    // encryption key it carries, is restricted to its two participants. The
+    // single `participants` condition is what makes the client's
+    // array-contains query provable to the rules engine.
+    match /direct_threads/{threadId} {
 
-      function roomData(roomId) {
-        return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+      function isParticipant() {
+        return request.auth.uid in resource.data.participants;
       }
 
-      function roomExists(roomId) {
-        return exists(/databases/$(database)/documents/rooms/$(roomId));
+      allow read: if isSignedIn() && isParticipant();
+
+      allow create: if isSignedIn()
+        && request.resource.data.authUid == request.auth.uid
+        && request.resource.data.participants is list
+        && request.resource.data.participants.size() == 2
+        && request.auth.uid in request.resource.data.participants
+        && request.resource.data.isPrivate == true
+        && request.resource.data.code is string
+        && request.resource.data.code.size() >= 16
+        && request.resource.data.creator is string
+        && ownsName(request.resource.data.creator)
+        && request.resource.data.expires_at is timestamp;
+
+      // The key, the membership and the expiry are frozen for the lifetime of
+      // the thread; only the conversation preview moves.
+      allow update: if isSignedIn()
+        && isParticipant()
+        && onlyChanged(['latestMessage', 'updated_at']);
+
+      // Either side can clear the thread at any time, and expired threads are
+      // swept by whoever notices them first.
+      allow delete: if isSignedIn() && (isParticipant() || isExpired(resource.data));
+
+      match /typing/{doc} {
+        allow read, write: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/direct_threads/$(threadId)).data.participants;
+      }
+      match /presence/{doc} {
+        allow read, write: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/direct_threads/$(threadId)).data.participants;
+      }
+      match /read_receipts/{doc} {
+        allow read, write: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/direct_threads/$(threadId)).data.participants;
+      }
+    }
+
+    // Messages for both rooms and direct threads
+    match /messages/{messageId} {
+
+      function threadPath(roomId) {
+        return /databases/$(database)/documents/direct_threads/$(roomId);
+      }
+
+      function roomPath(roomId) {
+        return /databases/$(database)/documents/rooms/$(roomId);
       }
 
       function isMessageAuthor() {
@@ -119,14 +178,21 @@ service cloud.firestore {
       }
 
       function ownsParentRoom() {
-        return roomExists(resource.data.room_id)
-          && roomData(resource.data.room_id).authUid == request.auth.uid;
+        return exists(roomPath(resource.data.room_id))
+          && get(roomPath(resource.data.room_id)).data.authUid == request.auth.uid;
       }
 
+      // Either side of a direct thread can wipe it, matching the promise that
+      // direct chats can be cleared at any time.
+      function isThreadMember(roomId) {
+        return exists(threadPath(roomId))
+          && request.auth.uid in get(threadPath(roomId)).data.participants;
+      }
+
+      // A message may only be posted to a room that exists, or to a direct
+      // thread the sender actually belongs to.
       function mayPostIn(roomId) {
-        return roomExists(roomId)
-          && (roomData(roomId).get('isDirect', false) != true
-              || request.auth.uid in roomData(roomId).get('participants', []));
+        return exists(threadPath(roomId)) ? isThreadMember(roomId) : exists(roomPath(roomId));
       }
 
       // Direct message bodies are end-to-end encrypted with a key that lives on
@@ -137,6 +203,7 @@ service cloud.firestore {
         && request.resource.data.authUid == request.auth.uid
         && request.resource.data.room_id is string
         && request.resource.data.sender is string
+        && ownsName(request.resource.data.sender)
         && request.resource.data.content is string
         && request.resource.data.content.size() > 0
         // Encrypted payloads expand well beyond the plaintext limit enforced
@@ -159,6 +226,7 @@ service cloud.firestore {
         || resource.data.keys().hasAny(['isBurnAfterReading'])
         || isExpired(resource.data)
         || ownsParentRoom()
+        || isThreadMember(resource.data.room_id)
       );
     }
 

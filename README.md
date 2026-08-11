@@ -73,6 +73,30 @@ Secure, temporary chat rooms that auto-destruct. Built with React 18, Vite, and 
 3. Set the **Output Directory** to: `dist`
 4. Deploy!
 
+## Data Model & Security
+
+Firestore collections:
+
+| Collection | Contents | Who can read it |
+| --- | --- | --- |
+| `rooms` | Public and private room metadata (including the private room code) | Any signed-in client — the home list and join-by-code lookup both query it |
+| `direct_threads` | Beta direct-message threads and their encryption key | Only the two participants |
+| `messages` | Message documents for both rooms and direct threads | Any signed-in client (direct message bodies are encrypted with the thread key) |
+| `usernames` / `handles` | One-shot reservation documents that bind a name or DM handle to an account | Any signed-in client, writable once by the owner |
+| `users` | Profile document with rollout tags | Only the account that owns it |
+
+`firestore.rules` enforces that rooms and messages are only edited or deleted by
+their owner or author, that usernames and DM handles are immutable once claimed,
+that a message's `sender` matches the reservation held by the caller, and that
+messages can only be posted into a direct thread the caller belongs to. Room and
+thread codes — which are also the encryption secrets — are generated from
+`crypto.getRandomValues`.
+
+Known, accepted limitations: message ciphertext and metadata are readable by any
+signed-in client, private room codes are visible to anyone listing rooms (this is
+what makes join-by-code work), and typing/presence markers inside public rooms are
+not bound to an identity.
+
 ## License
 
 CC0-1.0 — Public Domain

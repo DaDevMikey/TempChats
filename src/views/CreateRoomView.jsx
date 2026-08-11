@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { db, firebase } from '../firebase';
 import TopAppBar from '../components/TopAppBar';
+import { generateSecureCode } from '../utils/beta';
 
 export default function CreateRoomView({ user, onNavigate, onLogout, showSnackbar, onOpenSettings }) {
   const [roomName, setRoomName] = useState('');
@@ -37,7 +38,7 @@ export default function CreateRoomView({ user, onNavigate, onLogout, showSnackba
     try {
       const expiresAt = new Date();
       expiresAt.setHours(expiresAt.getHours() + finalDuration);
-      const roomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const roomCode = generateSecureCode(6);
 
       const newRoomRef = await db.collection('rooms').add({
         name: cleanName,

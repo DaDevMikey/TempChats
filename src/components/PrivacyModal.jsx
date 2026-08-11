@@ -16,6 +16,10 @@ const SECTIONS = [
   {
     title: '4. Automatic self-destruction',
     body: 'When a chat room expires, all messages, read receipts, and room metadata are permanently wiped from server memory.'
+  },
+  {
+    title: '5. Direct messages (beta)',
+    body: 'If you join the direct messages beta, your account is given a random handle that other people can use to start a one-to-one chat with you. Direct threads are end-to-end encrypted, are readable only by the two people in them, and are deleted automatically after 24 hours — or sooner if either person deletes them. You can leave the beta at any time from Settings.'
   }
 ];
 

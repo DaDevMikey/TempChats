@@ -73,6 +73,16 @@ export function generateDmHandle() {
   return `${adjective}-${noun}-${digits}`;
 }
 
+// Room and thread codes double as encryption secrets, so they come from the
+// cryptographic RNG rather than Math.random().
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+export function generateSecureCode(length) {
+  let out = '';
+  for (let i = 0; i < length; i += 1) out += CODE_ALPHABET[randomInt(CODE_ALPHABET.length)];
+  return out;
+}
+
 export function normalizeDmHandle(value) {
   return String(value || '').trim().toLowerCase().replace(/^@/, '');
 }
@@ -80,6 +90,10 @@ export function normalizeDmHandle(value) {
 export function isValidDmHandle(value) {
   return HANDLE_PATTERN.test(normalizeDmHandle(value));
 }
+
+// Direct threads live in their own collection so security rules can restrict
+// them to their two participants without affecting public room queries.
+export const DIRECT_THREADS = 'direct_threads';
 
 export const DM_LIFETIME_HOURS = 24;
 export const DM_MAX_THREADS = 50;

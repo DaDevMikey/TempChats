@@ -152,7 +152,7 @@ function MessageBubble({ msg, isOwn, isContinuation, onReply, onEdit, onDelete, 
           {msg.reply_to && (
             <div className="message-reply-box">
               <div style={{ fontWeight: 600, fontSize: '0.72rem' }}>Replying to {msg.reply_to.sender}</div>
-              <div className="truncate">{msg.reply_to.content}</div>
+              <div className="truncate">{msg.decryptedReply || msg.reply_to.content}</div>
             </div>
           )}
 

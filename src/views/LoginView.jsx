@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { db, auth } from '../firebase';
-import { createUserProfileFields, ensureUserProfile } from '../utils/profile';
+import { allocateDmHandle, ensureUserProfile, getUsernameOwner, reserveUsername } from '../utils/profile';
+import { rollSignupBetaFlag } from '../utils/beta';
 
 export default function LoginView({ onLoginSuccess, showSnackbar }) {
   const [username, setUsername] = useState('');
@@ -23,45 +24,60 @@ export default function LoginView({ onLoginSuccess, showSnackbar }) {
       const cred = await auth.signInAnonymously();
       const authUser = cred.user;
 
-      // 2. Check if username is already claimed by someone else
-      const existing = await db.collection('users').where('username', '==', cleaned).get();
-      if (!existing.empty) {
-        const doc = existing.docs[0];
-        const docData = doc.data();
-        if (docData.authUid !== authUser.uid) {
+      // 2. Claim the username. The reservation document is the single source
+      // of truth, so two people can never end up with the same name.
+      const owner = await getUsernameOwner(cleaned);
+      if (owner && owner.authUid !== authUser.uid) {
+        showSnackbar('Username is already taken by another user', 'error');
+        setLoading(false);
+        return;
+      }
+
+      if (owner && owner.userId) {
+        // Same account signing back in — reuse the existing profile
+        const restored = await ensureUserProfile({
+          username: owner.username || cleaned,
+          uid: owner.userId,
+          authUid: authUser.uid
+        });
+
+        if (restored.usernameConflict) {
           showSnackbar('Username is already taken by another user', 'error');
           setLoading(false);
           return;
         }
-
-        // Same account signing back in — reuse the existing profile
-        const restored = await ensureUserProfile({
-          username: cleaned,
-          uid: doc.id,
-          authUid: authUser.uid
-        });
 
         localStorage.setItem('tempchats_user', JSON.stringify(restored));
         onLoginSuccess(restored);
         return;
       }
 
-      // 3. Register user document
-      const profileFields = await createUserProfileFields();
+      // 3. Register the user document, then claim the name and a handle
+      const tags = { beta: rollSignupBetaFlag() };
       const userRef = await db.collection('users').add({
         username: cleaned,
         authUid: authUser.uid,
-        dmHandle: profileFields.dmHandle,
-        tags: profileFields.tags,
+        tags,
         created_at: new Date()
       });
+
+      const claimed = await reserveUsername(cleaned, authUser.uid, userRef.id);
+      if (!claimed) {
+        await db.collection('users').doc(userRef.id).delete().catch(() => {});
+        showSnackbar('Username is already taken by another user', 'error');
+        setLoading(false);
+        return;
+      }
+
+      const dmHandle = await allocateDmHandle(authUser.uid, cleaned);
+      if (dmHandle) await userRef.update({ dmHandle });
 
       const userData = {
         username: cleaned,
         uid: userRef.id,
         authUid: authUser.uid,
-        dmHandle: profileFields.dmHandle,
-        tags: profileFields.tags
+        dmHandle,
+        tags
       };
 
       localStorage.setItem('tempchats_user', JSON.stringify(userData));

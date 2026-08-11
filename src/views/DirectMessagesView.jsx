@@ -1,7 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, firebase } from '../firebase';
 import TopAppBar from '../components/TopAppBar';
-import { normalizeDmHandle, isValidDmHandle, DM_LIFETIME_HOURS, DM_MAX_THREADS } from '../utils/beta';
+import {
+  normalizeDmHandle,
+  isValidDmHandle,
+  generateSecureCode,
+  DM_LIFETIME_HOURS,
+  DM_MAX_THREADS,
+  DIRECT_THREADS
+} from '../utils/beta';
+import { getHandleOwner } from '../utils/profile';
 
 function formatTimeLeft(expiresAt) {
   if (!expiresAt) return '';
@@ -22,9 +30,9 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
   useEffect(() => {
     if (!user?.authUid) return undefined;
 
-    // Equality + inequality filters would need a composite index, so the
-    // expiry/direct filtering happens client side on this small result set.
-    const unsub = db.collection('rooms')
+    // Expiry filtering happens client side to avoid a composite index on a
+    // result set that is capped at a handful of threads.
+    const unsub = db.collection(DIRECT_THREADS)
       .where('participants', 'array-contains', user.authUid)
       .onSnapshot(
         (snapshot) => {
@@ -32,7 +40,6 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
           const list = snapshot.docs
             .map((doc) => ({ id: doc.id, ...doc.data() }))
             .filter((thread) => {
-              if (!thread.isDirect) return false;
               if (!thread.expires_at) return true;
               const exp = thread.expires_at.toDate ? thread.expires_at.toDate().getTime() : new Date(thread.expires_at).getTime();
               return exp > now;
@@ -81,13 +88,12 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
     setStarting(true);
 
     try {
-      const usersSnap = await db.collection('users').where('dmHandle', '==', handle).limit(1).get();
-      if (usersSnap.empty) {
+      const other = await getHandleOwner(handle);
+      if (!other) {
         showSnackbar('No user found with that handle', 'error');
         return;
       }
 
-      const other = usersSnap.docs[0].data();
       if (!other.authUid || other.authUid === user.authUid) {
         showSnackbar('That handle cannot be messaged', 'error');
         return;
@@ -102,14 +108,14 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
       const now = Date.now();
       const existing = threads.find((t) => Array.isArray(t.participants) && t.participants.includes(other.authUid));
       if (existing) {
-        onNavigate(`chat/${existing.id}`);
+        onNavigate(`dm/${existing.id}`);
         return;
       }
 
       const expiresAt = new Date(now + DM_LIFETIME_HOURS * 60 * 60 * 1000);
-      const code = Math.random().toString(36).substring(2, 14).toUpperCase();
+      const code = generateSecureCode(26);
 
-      const threadRef = await db.collection('rooms').add({
+      const threadRef = await db.collection(DIRECT_THREADS).add({
         name: `Direct message with ${handle}`,
         creator: user.username,
         authUid: user.authUid,
@@ -130,7 +136,7 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
       });
 
       setHandleInput('');
-      onNavigate(`chat/${threadRef.id}`);
+      onNavigate(`dm/${threadRef.id}`);
     } catch (err) {
       console.error('Start direct message error:', err);
       showSnackbar('Failed to start direct message', 'error');
@@ -146,7 +152,7 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
       const msgs = await db.collection('messages').where('room_id', '==', threadId).get();
       const batch = db.batch();
       msgs.docs.forEach((doc) => batch.delete(doc.ref));
-      batch.delete(db.collection('rooms').doc(threadId));
+      batch.delete(db.collection(DIRECT_THREADS).doc(threadId));
       await batch.commit();
       showSnackbar('Direct chat deleted');
     } catch (err) {
@@ -244,7 +250,7 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
                 {thread.latestMessage && <p className="room-card__preview truncate">{thread.latestMessage}</p>}
 
                 <div className="room-card__footer" style={{ gap: '8px' }}>
-                  <button className="md-btn md-btn--filled" onClick={() => onNavigate(`chat/${thread.id}`)}>
+                  <button className="md-btn md-btn--filled" onClick={() => onNavigate(`dm/${thread.id}`)}>
                     <span className="material-symbols-rounded" style={{ fontSize: '20px' }} aria-hidden="true">login</span>
                     <span>Open chat</span>
                   </button>
