@@ -21,7 +21,7 @@ const SETTINGS = [
   }
 ];
 
-export default function UserSettingsModal({ isOpen, settings, onUpdateSettings, onClose, onOpenPrivacyModal, onOpenReleaseNotes }) {
+export default function UserSettingsModal({ isOpen, settings, onUpdateSettings, onClose, onOpenPrivacyModal, onOpenReleaseNotes, isBeta = false, onUpdateBeta }) {
   if (!isOpen) return null;
 
   return (
@@ -62,6 +62,37 @@ export default function UserSettingsModal({ isOpen, settings, onUpdateSettings, 
               </label>
             </div>
           ))}
+
+          {onUpdateBeta && (
+            <div className="setting-row">
+              <div className="setting-row__text" style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+                <span className="material-symbols-rounded" style={{ color: 'var(--md-sys-color-primary)', fontSize: '22px', marginTop: '2px' }} aria-hidden="true">
+                  science
+                </span>
+                <div>
+                  <div className="title-small" style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span>Direct messages</span>
+                    <span className="beta-badge">Beta</span>
+                  </div>
+                  <div className="body-small text-muted">
+                    Try one-to-one chats that clear after 24 hours. This feature is still rolling out gradually, so turn it on here to
+                    join early or turn it off to leave the beta.
+                  </div>
+                </div>
+              </div>
+              <label className="md-switch">
+                <input
+                  type="checkbox"
+                  checked={isBeta}
+                  onChange={(e) => onUpdateBeta(e.target.checked)}
+                  aria-label="Direct messages beta"
+                />
+                <span className="md-switch__track">
+                  <span className="md-switch__thumb"></span>
+                </span>
+              </label>
+            </div>
+          )}
 
           <button
             type="button"

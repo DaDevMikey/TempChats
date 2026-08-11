@@ -36,10 +36,16 @@ export default function HomeView({ user, onNavigate, onLogout, onOpenPrivacyModa
     if (!code || !code.trim()) return;
     const cleanCode = code.trim().toUpperCase();
 
+    // Room codes are always 6 alphanumeric characters. Validating first keeps
+    // the lookup off private direct-thread codes, which are longer.
+    if (!/^[A-Z0-9]{6}$/.test(cleanCode)) {
+      showSnackbar('Room codes are 6 letters or numbers', 'error');
+      setIsJoinCodeOpen(false);
+      return;
+    }
+
     try {
-      const snap = await db.collection('rooms').where('code', '==', cleanCode).get();
-      // Direct message threads also carry a code, but they are only reachable
-      // by their two participants.
+      const snap = await db.collection('rooms').where('code', '==', cleanCode).limit(5).get();
       const match = snap.docs.find((doc) => !doc.data().isDirect);
       if (!match) {
         showSnackbar('Invalid or expired room code', 'error');

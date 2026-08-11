@@ -2,54 +2,169 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    function onlyChanged(keys) {
+      return changedKeys().hasOnly(keys);
+    }
+
+    function isExpired(data) {
+      return data.keys().hasAny(['expires_at']) && data.expires_at < request.time;
+    }
+
     // Users collection
     match /users/{userId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
         && request.resource.data.authUid == request.auth.uid
-        && request.resource.data.username is string;
-      // Users may only update their own profile (rollout tags, DM handle)
-      allow update: if request.auth != null
+        && request.resource.data.username is string
+        && request.resource.data.username.size() >= 3
+        && request.resource.data.username.size() <= 20
+        && request.resource.data.keys().hasOnly(['username', 'authUid', 'dmHandle', 'tags', 'created_at']);
+
+      // Owners may only change their rollout tags, plus a one-time backfill of
+      // their direct-message handle. Usernames, handles and the auth binding
+      // are immutable so identities cannot be hijacked or impersonated.
+      allow update: if isSignedIn()
         && resource.data.authUid == request.auth.uid
-        && request.resource.data.authUid == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.authUid == request.auth.uid;
+        && request.resource.data.authUid == resource.data.authUid
+        && onlyChanged(['dmHandle', 'tags'])
+        && request.resource.data.tags is map
+        && (!resource.data.keys().hasAny(['dmHandle'])
+            || request.resource.data.dmHandle == resource.data.dmHandle);
+
+      allow delete: if isSignedIn() && resource.data.authUid == request.auth.uid;
     }
-    
+
     // Rooms collection
     match /rooms/{roomId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
+
+      function isDirectRoom(data) {
+        return data.keys().hasAny(['isDirect']) && data.isDirect == true;
+      }
+
+      function isParticipant(data) {
+        return data.keys().hasAny(['participants'])
+          && data.participants is list
+          && request.auth.uid in data.participants;
+      }
+
+      function isRoomOwner() {
+        return resource.data.authUid == request.auth.uid;
+      }
+
+      // Direct message threads — including their encryption code — are only
+      // visible to the two people in them.
+      allow read: if isSignedIn()
+        && (!isDirectRoom(resource.data) || isParticipant(resource.data));
+
+      allow create: if isSignedIn()
         && request.resource.data.authUid == request.auth.uid
         && request.resource.data.name is string
-        && request.resource.data.creator is string;
-      allow update: if request.auth != null;
-      allow delete: if request.auth != null;
+        && request.resource.data.name.size() > 0
+        && request.resource.data.name.size() <= 120
+        && request.resource.data.creator is string
+        && request.resource.data.expires_at is timestamp
+        && (!isDirectRoom(request.resource.data)
+            || (isParticipant(request.resource.data) && request.resource.data.participants.size() == 2));
+
+      // Owners can manage their room (including handing it over on logout) but
+      // can never turn it into, or out of, a direct thread. Everyone else may
+      // only bump the conversation preview of a room they can post in.
+      allow update: if isSignedIn() && (
+        (isRoomOwner() && !changedKeys().hasAny(['isDirect', 'participants', 'code']))
+        || (onlyChanged(['latestMessage', 'updated_at'])
+            && (!isDirectRoom(resource.data) || isParticipant(resource.data)))
+      );
+
+      allow delete: if isSignedIn() && (
+        isRoomOwner()
+        || isExpired(resource.data)
+        || (isDirectRoom(resource.data) && isParticipant(resource.data))
+      );
 
       // Subcollections under rooms
       match /typing/{doc} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isSignedIn();
       }
       match /presence/{doc} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isSignedIn();
       }
       match /read_receipts/{doc} {
-        allow read, write: if request.auth != null;
+        allow read, write: if isSignedIn();
       }
     }
-    
+
     // Messages collection
     match /messages/{messageId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
+
+      function roomData(roomId) {
+        return get(/databases/$(database)/documents/rooms/$(roomId)).data;
+      }
+
+      function roomExists(roomId) {
+        return exists(/databases/$(database)/documents/rooms/$(roomId));
+      }
+
+      function isMessageAuthor() {
+        return resource.data.authUid == request.auth.uid;
+      }
+
+      function ownsParentRoom() {
+        return roomExists(resource.data.room_id)
+          && roomData(resource.data.room_id).authUid == request.auth.uid;
+      }
+
+      function mayPostIn(roomId) {
+        return roomExists(roomId)
+          && (roomData(roomId).get('isDirect', false) != true
+              || request.auth.uid in roomData(roomId).get('participants', []));
+      }
+
+      // Direct message bodies are end-to-end encrypted with a key that lives on
+      // the thread document, which only the two participants can read.
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
         && request.resource.data.authUid == request.auth.uid
-        && request.resource.data.content is string;
-      allow update: if request.auth != null;
-      allow delete: if request.auth != null;
+        && request.resource.data.room_id is string
+        && request.resource.data.sender is string
+        && request.resource.data.content is string
+        && request.resource.data.content.size() > 0
+        // Encrypted payloads expand well beyond the plaintext limit enforced
+        // by the client, so this is a storage-abuse guard rather than a UI cap
+        && request.resource.data.content.size() <= 65536
+        && mayPostIn(request.resource.data.room_id);
+
+      // Authors edit their own text; anyone in the conversation can react.
+      allow update: if isSignedIn() && (
+        (isMessageAuthor() && onlyChanged(['content', 'edited', 'reactions']))
+        || onlyChanged(['reactions'])
+      );
+
+      // Authors and room owners can delete. Vanishing / one-time-view messages
+      // are removed by the recipient's client, and anyone may sweep messages
+      // whose lifetime has already run out.
+      allow delete: if isSignedIn() && (
+        isMessageAuthor()
+        || resource.data.keys().hasAny(['vanishTimeSeconds'])
+        || resource.data.keys().hasAny(['isBurnAfterReading'])
+        || isExpired(resource.data)
+        || ownsParentRoom()
+      );
     }
-    
+
     // Typing indicators top-level match fallback
     match /typing/{roomId} {
-      allow read, write: if request.auth != null;
+      allow read, write: if isSignedIn();
     }
   }
 }

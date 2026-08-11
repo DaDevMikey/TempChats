@@ -4,9 +4,33 @@
 // surfaced once to every user.
 // ==========================================================================
 
-export const CURRENT_RELEASE = '2.1.0';
+export const CURRENT_RELEASE = '2.2.0';
 
 export const RELEASE_NOTES = [
+  {
+    version: '2.2.0',
+    date: 'August 2026',
+    highlights: [
+      {
+        icon: 'science',
+        title: 'Turn on direct messages yourself',
+        description:
+          'Direct messages now have a switch in Settings, so you no longer have to wait to be picked. Accounts that are not in the beta also get a small chance of being added every time the app loads, and once you are in you stay in unless you switch it off yourself.',
+        badge: 'Beta — gradual rollout'
+      },
+      {
+        icon: 'shield_lock',
+        title: 'Hardened security rules',
+        description:
+          'Direct threads and their encryption keys are readable only by the two people in them, usernames and handles can no longer be changed or impersonated, and messages and rooms can only be edited or deleted by the people they belong to.'
+      },
+      {
+        icon: 'delete_sweep',
+        title: 'Delete a direct chat early',
+        description: 'Remove a direct thread and everything in it straight from the direct messages list instead of waiting 24 hours.'
+      }
+    ]
+  },
   {
     version: '2.1.0',
     date: 'August 2026',

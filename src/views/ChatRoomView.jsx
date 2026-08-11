@@ -10,6 +10,8 @@ import { getQRCodeUrl } from '../utils/qr';
 // Only the most recent slice of a room is rendered — older messages expire anyway
 // and unbounded listeners are the main source of jank on low-end phones.
 const MESSAGE_WINDOW = 200;
+// Mirrors the size limit enforced by the Firestore security rules
+const MAX_MESSAGE_LENGTH = 4000;
 const READ_RECEIPT_THROTTLE_MS = 5000;
 
 function moderateContent(text, level = 'minimal') {
@@ -360,6 +362,11 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     const cleanContent = inputVal.trim();
     if (!cleanContent || !room) return;
 
+    if (cleanContent.length > MAX_MESSAGE_LENGTH) {
+      showSnackbar(`Messages are limited to ${MAX_MESSAGE_LENGTH} characters`, 'error');
+      return;
+    }
+
     setInputVal('');
     if (inputRef.current) inputRef.current.style.height = 'auto';
     isTypingRef.current = false;
@@ -461,6 +468,10 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
     const clean = newContent.trim();
     if (clean === (editingMsg.decryptedContent || editingMsg.content)) {
       setEditingMsg(null);
+      return;
+    }
+    if (clean.length > MAX_MESSAGE_LENGTH) {
+      showSnackbar(`Messages are limited to ${MAX_MESSAGE_LENGTH} characters`, 'error');
       return;
     }
     try {
@@ -669,6 +680,7 @@ export default function ChatRoomView({ roomId, user, onNavigate, onLogout, showS
             onKeyDown={handleInputKeyDown}
             autoComplete="off"
             enterKeyHint="send"
+            maxLength={MAX_MESSAGE_LENGTH}
             aria-label="Message"
           />
           <button

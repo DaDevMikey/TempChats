@@ -1,5 +1,5 @@
 import { db } from '../firebase';
-import { generateDmHandle, rollBetaFlag } from './beta';
+import { generateDmHandle, rollSignupBetaFlag, shouldEnrolOnRefresh } from './beta';
 
 // Handles are short and human readable, so collisions are possible — retry a
 // few times before falling back to the last generated value.
@@ -20,12 +20,12 @@ export async function allocateDmHandle(attempts = 5) {
 export async function createUserProfileFields() {
   return {
     dmHandle: await allocateDmHandle(),
-    tags: { beta: rollBetaFlag() }
+    tags: { beta: rollSignupBetaFlag() }
   };
 }
 
-// Backfills the rollout tag and direct-message handle for accounts that were
-// created before those fields existed, and returns the freshest user data.
+// Backfills the direct-message handle for older accounts, re-rolls the beta
+// enrolment for users who are not in it yet, and returns the freshest data.
 export async function ensureUserProfile(user) {
   if (!user?.uid) return user;
 
@@ -35,10 +35,22 @@ export async function ensureUserProfile(user) {
     if (!doc.exists) return user;
 
     const data = doc.data() || {};
+    if (data.authUid !== user.authUid) return user;
+
+    const tags = (data.tags && typeof data.tags === 'object') ? data.tags : {};
     const updates = {};
+    let nextTags = tags;
 
     if (!data.dmHandle) updates.dmHandle = await allocateDmHandle();
-    if (!data.tags || typeof data.tags !== 'object') updates.tags = { beta: rollBetaFlag() };
+
+    if (shouldEnrolOnRefresh(tags)) {
+      // Enrolment is one-way — the roll can only ever set the flag to true.
+      nextTags = { ...tags, beta: true };
+      updates.tags = nextTags;
+    } else if (!data.tags || typeof data.tags !== 'object') {
+      nextTags = { beta: false };
+      updates.tags = nextTags;
+    }
 
     if (Object.keys(updates).length > 0) {
       await ref.update(updates);
@@ -48,10 +60,20 @@ export async function ensureUserProfile(user) {
       ...user,
       username: data.username || user.username,
       dmHandle: updates.dmHandle || data.dmHandle,
-      tags: updates.tags || data.tags || {}
+      tags: nextTags
     };
   } catch (err) {
     console.error('Profile sync error:', err);
     return user;
   }
+}
+
+// Explicit opt-in/opt-out from Settings. Opting out is remembered so the
+// random rollout does not immediately re-enrol the user.
+export async function setBetaPreference(user, enabled) {
+  if (!user?.uid) return user;
+
+  const tags = { ...(user.tags || {}), beta: Boolean(enabled), betaOptOut: !enabled };
+  await db.collection('users').doc(user.uid).update({ tags });
+  return { ...user, tags };
 }

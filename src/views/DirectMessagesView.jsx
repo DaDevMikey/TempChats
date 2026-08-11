@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { db, firebase } from '../firebase';
 import TopAppBar from '../components/TopAppBar';
-import { normalizeDmHandle, DM_LIFETIME_HOURS } from '../utils/beta';
+import { normalizeDmHandle, isValidDmHandle, DM_LIFETIME_HOURS, DM_MAX_THREADS } from '../utils/beta';
 
 function formatTimeLeft(expiresAt) {
   if (!expiresAt) return '';
@@ -17,6 +17,7 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
   const [threads, setThreads] = useState([]);
   const [handleInput, setHandleInput] = useState('');
   const [starting, setStarting] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   useEffect(() => {
     if (!user?.authUid) return undefined;
@@ -62,8 +63,18 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
     const handle = normalizeDmHandle(handleInput);
     if (!handle || starting) return;
 
+    if (!isValidDmHandle(handle)) {
+      showSnackbar('Handles look like "swift-otter-4821"', 'error');
+      return;
+    }
+
     if (handle === normalizeDmHandle(myHandle)) {
       showSnackbar('That is your own handle', 'error');
+      return;
+    }
+
+    if (threads.length >= DM_MAX_THREADS) {
+      showSnackbar(`You can have up to ${DM_MAX_THREADS} direct chats at a time`, 'error');
       return;
     }
 
@@ -79,6 +90,11 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
       const other = usersSnap.docs[0].data();
       if (!other.authUid || other.authUid === user.authUid) {
         showSnackbar('That handle cannot be messaged', 'error');
+        return;
+      }
+
+      if (!myHandle) {
+        showSnackbar('Your handle is still being set up. Try again in a moment.', 'error');
         return;
       }
 
@@ -120,6 +136,24 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
       showSnackbar('Failed to start direct message', 'error');
     } finally {
       setStarting(false);
+    }
+  };
+
+  const handleDeleteThread = async (threadId) => {
+    if (deletingId) return;
+    setDeletingId(threadId);
+    try {
+      const msgs = await db.collection('messages').where('room_id', '==', threadId).get();
+      const batch = db.batch();
+      msgs.docs.forEach((doc) => batch.delete(doc.ref));
+      batch.delete(db.collection('rooms').doc(threadId));
+      await batch.commit();
+      showSnackbar('Direct chat deleted');
+    } catch (err) {
+      console.error('Delete direct chat error:', err);
+      showSnackbar('Failed to delete this chat', 'error');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -209,10 +243,19 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
 
                 {thread.latestMessage && <p className="room-card__preview truncate">{thread.latestMessage}</p>}
 
-                <div className="room-card__footer">
+                <div className="room-card__footer" style={{ gap: '8px' }}>
                   <button className="md-btn md-btn--filled" onClick={() => onNavigate(`chat/${thread.id}`)}>
                     <span className="material-symbols-rounded" style={{ fontSize: '20px' }} aria-hidden="true">login</span>
                     <span>Open chat</span>
+                  </button>
+                  <button
+                    className="md-btn md-btn--tonal"
+                    onClick={() => handleDeleteThread(thread.id)}
+                    disabled={deletingId === thread.id}
+                    aria-label={`Delete chat with ${thread.otherHandle}`}
+                  >
+                    <span className="material-symbols-rounded" style={{ fontSize: '20px' }} aria-hidden="true">delete</span>
+                    <span>Delete</span>
                   </button>
                 </div>
               </article>
