@@ -10,6 +10,7 @@ import {
   DIRECT_THREADS
 } from '../utils/beta';
 import { getHandleOwner } from '../utils/profile';
+import { deleteDocsInBatches } from '../utils/batch';
 
 function formatTimeLeft(expiresAt) {
   if (!expiresAt) return '';
@@ -150,10 +151,10 @@ export default function DirectMessagesView({ user, onNavigate, onLogout, onOpenS
     setDeletingId(threadId);
     try {
       const msgs = await db.collection('messages').where('room_id', '==', threadId).get();
-      const batch = db.batch();
-      msgs.docs.forEach((doc) => batch.delete(doc.ref));
-      batch.delete(db.collection(DIRECT_THREADS).doc(threadId));
-      await batch.commit();
+      await deleteDocsInBatches([
+        ...msgs.docs.map((doc) => doc.ref),
+        db.collection(DIRECT_THREADS).doc(threadId)
+      ]);
       showSnackbar('Direct chat deleted');
     } catch (err) {
       console.error('Delete direct chat error:', err);

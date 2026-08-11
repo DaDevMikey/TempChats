@@ -90,10 +90,18 @@ export async function ensureUserProfile(user) {
         ? fresh.data().tags
         : null;
 
-      if (freshTags && !shouldEnrolOnRefresh(freshTags)) return freshTags;
+      const current = freshTags || {};
+      if (!shouldEnrolOnRefresh(current)) {
+        if (freshTags) return freshTags;
+        // Older accounts have no tags map at all — give them one so the flag
+        // is always present and readable.
+        const seeded = { beta: false };
+        tx.update(ref, { tags: seeded });
+        return seeded;
+      }
 
       // Enrolment is one-way — the roll can only ever set the flag to true.
-      const nextTags = freshTags ? { ...freshTags, beta: true } : { beta: false };
+      const nextTags = { ...current, beta: true };
       tx.update(ref, { tags: nextTags });
       return nextTags;
     });

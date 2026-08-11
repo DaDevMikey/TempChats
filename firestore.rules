@@ -195,8 +195,13 @@ service cloud.firestore {
         return exists(threadPath(roomId)) ? isThreadMember(roomId) : exists(roomPath(roomId));
       }
 
-      // Direct message bodies are end-to-end encrypted with a key that lives on
-      // the thread document, which only the two participants can read.
+      // Message bodies are readable by any signed-in client. Direct message
+      // bodies (and their reply previews) are end-to-end encrypted with a key
+      // that lives on the thread document, which only the two participants can
+      // read, so what leaks here is ciphertext plus metadata (sender, room id,
+      // timestamps, reactions). This is deliberate: room history has to stay
+      // listable by `room_id` for every member, and a query on `room_id` alone
+      // cannot prove thread membership to the rules engine.
       allow read: if isSignedIn();
 
       allow create: if isSignedIn()

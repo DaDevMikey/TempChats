@@ -11,6 +11,7 @@ import DialogModal from './components/DialogModal';
 import UserSettingsModal from './components/UserSettingsModal';
 import ReleaseNotesModal from './components/ReleaseNotesModal';
 import { ensureUserProfile, setBetaPreference, getUsernameOwner, releaseIdentity } from './utils/profile';
+import { deleteDocsInBatches } from './utils/batch';
 import { isBetaUser, DIRECT_THREADS } from './utils/beta';
 import { CURRENT_RELEASE } from './releaseNotes';
 
@@ -151,9 +152,7 @@ export default function App() {
           .get();
 
         if (!snap.empty) {
-          const batch = db.batch();
-          snap.docs.forEach((doc) => batch.delete(doc.ref));
-          await batch.commit();
+          await deleteDocsInBatches(snap.docs.map((doc) => doc.ref));
           console.log(`Purged ${snap.size} expired messages`);
         }
 
@@ -175,9 +174,7 @@ export default function App() {
           });
 
           if (expiredDirect.length > 0) {
-            const roomBatch = db.batch();
-            expiredDirect.forEach((doc) => roomBatch.delete(doc.ref));
-            await roomBatch.commit();
+            await deleteDocsInBatches(expiredDirect.map((doc) => doc.ref));
           }
         }
       } catch (err) {
@@ -279,10 +276,7 @@ export default function App() {
 
         // Room is abandoned — delete room and all associated messages
         const roomMsgs = await db.collection('messages').where('room_id', '==', roomId).get();
-        const batch = db.batch();
-        roomMsgs.docs.forEach((d) => batch.delete(d.ref));
-        batch.delete(roomDoc.ref);
-        await batch.commit();
+        await deleteDocsInBatches([...roomMsgs.docs.map((d) => d.ref), roomDoc.ref]);
         console.log(`Deleted abandoned room ${roomId} and its messages`);
       }
 
@@ -291,10 +285,7 @@ export default function App() {
       const dmSnap = await db.collection(DIRECT_THREADS).where('participants', 'array-contains', user.authUid).get();
       for (const dmDoc of dmSnap.docs) {
         const dmMsgs = await db.collection('messages').where('room_id', '==', dmDoc.id).get();
-        const dmBatch = db.batch();
-        dmMsgs.docs.forEach((d) => dmBatch.delete(d.ref));
-        dmBatch.delete(dmDoc.ref);
-        await dmBatch.commit();
+        await deleteDocsInBatches([...dmMsgs.docs.map((d) => d.ref), dmDoc.ref]);
       }
 
       // 3. Delete the user document and free the reserved name and handle
